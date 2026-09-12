@@ -112,7 +112,10 @@ body {
 }
 .brand-wordmark em {
   font-style: normal;
-  background: var(--grad); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+background: var(--grad);
+-webkit-background-clip: text;
+background-clip: text;
+-webkit-text-fill-color: transparent;
 }
 .login-tagline {
   font-size: .82rem; color: var(--muted2); letter-spacing: .02em; margin-top: 4px;
@@ -177,7 +180,10 @@ body {
   margin-bottom: 10px;
 }
 .sd-intelligence h2 span, .sd-action-engine h2 strong {
-  background: var(--grad); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background: var(--grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 .sd-intel-subtitle {
   font-size: .78rem; color: var(--muted2); line-height: 1.55; margin-bottom: 24px;
