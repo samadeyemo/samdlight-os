@@ -180,6 +180,8 @@
   }
   .nav-dropdown-menu a:hover { background: var(--surface); color: var(--white); }
   @media (max-width: 800px) {
+    .nav-dd-trigger { width: 100%; padding: 4px 0; font-size: 0.875rem; }
+    .nav-dd-caret { font-size: .8rem; }
     .nav-dropdown-menu {
       position: static; transform: none; opacity: 1; visibility: visible;
       display: none; box-shadow: none; border: none; background: none;
@@ -201,6 +203,10 @@
   .footer-col a:hover { color: var(--white); }
   .footer-bottom { padding: 1.5rem 5% 2.5rem; border-top: 1px solid var(--border); text-align: center; }
   .footer-bottom .footer-copy { font-size: .8rem; color: var(--muted); }
+  .footer-bottom-inner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; max-width: 1200px; margin: 0 auto; }
+  .footer-social { display: flex; align-items: center; gap: .9rem; }
+  .footer-social a { color: var(--muted); display: flex; opacity: .8; transition: opacity .15s, color .15s; }
+  .footer-social a:hover { color: var(--gold); opacity: 1; }
 
 
 
