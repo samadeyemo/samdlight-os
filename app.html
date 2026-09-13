@@ -464,6 +464,43 @@ function curSym(){
   // £) conventionally sit flush against the number, so only pad the former.
   return sym.length > 1 ? sym + ' ' : sym;
 }
+// Generic CSV export — builds the file entirely client-side from data
+// already loaded in DB, so exporting never depends on any extra request.
+function downloadCSV(filename, rows, headers){
+  const escape = v => {
+    if(v===null||v===undefined) return '';
+    const s = String(v);
+    return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+  };
+  const lines = [headers.map(escape).join(',')];
+  rows.forEach(row => lines.push(headers.map(h => escape(row[h])).join(',')));
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function exportSales(){
+  downloadCSV('sales.csv', DB.sales.map(s=>({date:s.date, customer:s.customer, product:s.product, amount:s.amount, method:s.method, status:s.status, staff:s.staff})),
+    ['date','customer','product','amount','method','status','staff']);
+  logActivity('Exported sales data as CSV');
+}
+function exportCustomers(){
+  downloadCSV('customers.csv', DB.customers.map(c=>({name:c.name, phone:c.phone, email:c.email, total_spent:c.totalSpent, visits:c.visits, status:c.status, last_buy:c.lastBuy})),
+    ['name','phone','email','total_spent','visits','status','last_buy']);
+  logActivity('Exported customer data as CSV');
+}
+function exportExpenses(){
+  downloadCSV('expenses.csv', DB.expenses.map(e=>({date:e.date, name:e.name, category:e.category, amount:e.amount, payment_method:e.method})),
+    ['date','name','category','amount','payment_method']);
+  logActivity('Exported expenses data as CSV');
+}
+function exportProducts(){
+  downloadCSV('products.csv', DB.products.map(p=>({sku:p.sku, name:p.name, category:p.cat, price:p.price, cost:p.cost, stock:p.stock, sold:p.sold})),
+    ['sku','name','category','price','cost','stock','sold']);
+  logActivity('Exported product data as CSV');
+}
 function renderTopbarAvatar(){
   const el = document.getElementById('tav');
   if(!el) return;
@@ -1100,7 +1137,7 @@ async function loadSession(){
 function switchWorkspace(context){
   ME.context = context;
   buildSB();
-  go(context==='platform' ? 'platform' : 'growth', null);
+  go(context==='platform' ? 'platformdash' : 'growth', null);
 }
 
 // Recovery screen for accounts stuck without a business (signup was interrupted)
@@ -1341,8 +1378,14 @@ function buildSB(){
     </div>
     ${workspaceSwitcherHtml()}
     <div class="sb-section">Platform</div>
-    <div class="nav-item" id="nav-platform" onclick="go('platform',this)"><span class="nav-icon">🌐</span>Overview</div>
-    <div class="nav-item" id="nav-support" onclick="go('support',this)"><span class="nav-icon">🔐</span>Support Access</div>
+    <div class="nav-item" id="nav-platformdash" onclick="go('platformdash',this)"><span class="nav-icon">🌐</span>Dashboard</div>
+    <div class="nav-item" id="nav-platformbiz" onclick="go('platformbiz',this)"><span class="nav-icon">🏢</span>Businesses</div>
+    <div class="nav-item" id="nav-platformsubs" onclick="go('platformsubs',this)"><span class="nav-icon">💳</span>Subscriptions</div>
+    <div class="nav-item" id="nav-support" onclick="go('support',this)"><span class="nav-icon">🔐</span>Support</div>
+    <div class="nav-item" id="nav-platformusers" onclick="go('platformusers',this)"><span class="nav-icon">👤</span>Users</div>
+    <div class="nav-item" id="nav-platformanalytics" onclick="go('platformanalytics',this)"><span class="nav-icon">📈</span>Analytics</div>
+    <div class="nav-item" id="nav-platformaudit" onclick="go('platformaudit',this)"><span class="nav-icon">📜</span>Audit Logs</div>
+    <div class="nav-item" id="nav-platformsettings" onclick="go('platformsettings',this)"><span class="nav-icon">⚙️</span>Platform Settings</div>
     <div class="sb-section">Account</div>
     <div class="nav-item" id="nav-profile" onclick="go('profile',this)"><span class="nav-icon">👤</span>My Profile</div>
     <div class="sb-bottom">
@@ -1450,8 +1493,14 @@ const PAGES = {
   attendance:{ h:'Attendance',      sub:'Clock in and out, and track staff attendance' },
   payroll:   { h:'Payroll',         sub:'Staff salaries and monthly payroll runs' },
   billing:   { h:'Billing',         sub:'Your subscription plan and payment history' },
-  platform:  { h:'All Businesses',  sub:'Platform-wide view — every business on SamDlight OS' },
-  support:   { h:'Support Access',  sub:'Request temporary, owner-approved access to a business for support' },
+  platformdash:      { h:'Platform Dashboard',   sub:'Overview and key metrics across every business on SamDlight OS' },
+  platformbiz:       { h:'Businesses',            sub:'All registered businesses and their platform-level details' },
+  platformsubs:      { h:'Subscriptions',         sub:'Plans, active subscriptions, expiry, and payment status' },
+  support:           { h:'Support',               sub:'Request temporary, owner-approved access to a business for support' },
+  platformusers:     { h:'Users',                 sub:'All users across every business on the platform' },
+  platformanalytics: { h:'Analytics',             sub:'Platform-wide usage and business growth metrics' },
+  platformaudit:     { h:'Audit Logs',            sub:'Administrative and support-access activity' },
+  platformsettings:  { h:'Platform Settings',     sub:'Platform-level configuration' },
   supportreq:{ h:'Support Requests',sub:'Approve, confirm, or reject requests to access your business' },
   reports:   { h:'Verified Reports', sub:'Turn your real SamDlight OS records into a professional, publicly-verifiable financial report' },
   funding:   { h:'Funding Application', sub:'Package your business profile and verified performance into a professional application' },
@@ -1634,6 +1683,39 @@ function buildRecos(){
 const R = {};
 
 /* ── GROWTH ENGINE ── */
+// Onboarding checklist — computed from real state (never a static "step 1
+// of 4" claim), dismissible once, remembered per business via localStorage.
+function onboardingChecklistHtml(){
+  const key = 'sd_onboarding_dismissed_' + DB.business.id;
+  if(localStorage.getItem(key)) return '';
+  const steps = [
+    { label:'Add your first product', done: DB.products.length>0, action:"go('inventory',null)" },
+    { label:'Record a sale',          done: DB.sales.length>0,    action:"go('sales',null)" },
+    { label:'Invite staff',           done: DB.users.length>1 || (DB.pending||[]).length>0, action:"go('team',null)" },
+    { label:'Check your first report',done: (DB.verifiedReports||[]).length>0, action:"go('reports',null)" },
+  ];
+  const doneCount = steps.filter(s=>s.done).length;
+  if(doneCount===steps.length) return ''; // fully complete — stop showing automatically
+  return `
+  <div class="panel" style="margin-bottom:16px;border-color:var(--gold)">
+    <div class="panel-head">
+      <h3>👋 Getting Started (${doneCount}/${steps.length})</h3>
+      <button class="btn btn-ghost btn-sm" onclick="dismissOnboarding()">Dismiss</button>
+    </div>
+    <div class="panel-body" style="display:flex;flex-direction:column;gap:10px">
+      ${steps.map(s=>`
+        <div style="display:flex;align-items:center;gap:10px;${s.done?'opacity:.55':''}">
+          <span style="font-size:1.1rem">${s.done?'✅':'⬜'}</span>
+          <span style="flex:1;${s.done?'text-decoration:line-through':''}">${s.label}</span>
+          ${!s.done?`<button class="btn btn-gold btn-sm" onclick="${s.action}">Go</button>`:''}
+        </div>`).join('')}
+    </div>
+  </div>`;
+}
+function dismissOnboarding(){
+  localStorage.setItem('sd_onboarding_dismissed_' + DB.business.id, '1');
+  R.growth();
+}
 R.growth = ()=>{
   const paidSales = DB.sales.filter(s=>s.status==='Paid');
   const yesterday = paidSales.filter(s=>s.date===yesterdayStr());
@@ -1658,6 +1740,7 @@ R.growth = ()=>{
 
   document.getElementById('body').innerHTML = `
   ${trial}
+  ${onboardingChecklistHtml()}
   ${unreadNotifs.map(n=>`<div style="background:${n.severity==='critical'?'rgba(239,68,68,.12)':n.severity==='warning'?'rgba(245,158,11,.1)':'var(--gold-dim)'};border:1px solid ${n.severity==='critical'?'var(--red)':n.severity==='warning'?'var(--amber)':'var(--gold)'};border-radius:10px;padding:12px 16px;margin-bottom:12px;font-size:.82rem;display:flex;justify-content:space-between;align-items:center;gap:12px">
     <span>${n.severity==='critical'?'🚨':'ℹ️'} ${n.message}</span>
     <button class="btn btn-ghost btn-sm" onclick="markNotifRead('${n.id}')">Dismiss</button>
@@ -1840,7 +1923,7 @@ function renderSales(data){
     <td>${s.method}</td>
     <td>${s.staff}</td>
     <td>${s.status==='Paid'?'<span class="bdg bdg-green">Paid</span>':'<span class="bdg bdg-amber">Pending</span>'}</td>
-    <td><button class="btn btn-danger btn-sm" onclick="deleteSale(${s.id})">Del</button></td>
+    <td><button class="btn btn-danger btn-sm" onclick="deleteSale('${s.id}')">Del</button></td>
   </tr>`).join('');
 }
 function filterSales(q){ renderSales(DB.sales.filter(s=>s.customer.toLowerCase().includes(q.toLowerCase())||s.product.toLowerCase().includes(q.toLowerCase()))); }
@@ -1862,7 +1945,7 @@ function openAddSale(){
     <div class="field"><label>Status</label><select id="s-stat"><option>Paid</option><option>Pending</option></select></div>
     <div class="field"><label>Staff</label><select id="s-staff">${DB.users.map(u=>`<option>${u.name.split(' ')[0]}</option>`).join('')}</select></div>
   </div>
-  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="saveSale()">Save Sale</button></div>`);
+  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="if(this.disabled)return;this.disabled=true;saveSale().finally(()=>this.disabled=false)">Save Sale</button></div>`);
   renderSaleItems();
 }
 
@@ -2101,8 +2184,16 @@ function renderCusts(data){
     <td>${c.visits}</td>
     <td><span class="bdg bdg-${segColors[c.segment]||'muted'}">${c.segment}</span></td>
     <td>${c.status==='Active'?'<span class="bdg bdg-green">Active</span>':c.status==='Pending'?'<span class="bdg bdg-amber">Pending</span>':c.status==='At Risk'?'<span class="bdg bdg-amber">At Risk</span>':'<span class="bdg bdg-red">Dormant</span>'}</td>
-    <td><button class="btn btn-ghost btn-sm" onclick="viewCustomer(${c.id})">View</button></td>
+    <td><button class="btn btn-ghost btn-sm" onclick="viewCustomer('${c.id}')">View</button> <button class="btn btn-danger btn-sm" onclick="deleteCustomer('${c.id}')">Del</button></td>
   </tr>`).join('');
+}
+async function deleteCustomer(id){
+  if(!confirm('Delete this customer? Their past sales records will be kept, just no longer linked to a named customer.'))return;
+  const { error } = await sb.from('customers').delete().eq('id', id);
+  if(error){ toast(error.message.replace(/^.*?:\s*/,''),'warn'); return; }
+  await logActivity('Deleted a customer');
+  await refreshAllData();
+  R.customers(); toast('Customer deleted');
 }
 function filterCusts(q){ renderCusts(DB.customers.filter(c=>c.name.toLowerCase().includes(q.toLowerCase()))); }
 
@@ -2113,7 +2204,7 @@ function openAddCustomer(){
     <div class="field"><label>Phone</label><input id="c-phone" placeholder="0801-234-5678"></div>
     <div class="field"><label>Email</label><input id="c-email" type="email" placeholder="email@business.com"></div>
   </div>
-  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="saveCustomer()">Add</button></div>`);
+  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="if(this.disabled)return;this.disabled=true;saveCustomer().finally(()=>this.disabled=false)">Add</button></div>`);
 }
 async function saveCustomer(){
   const name=v('c-name'); if(!name){toast('Name required','warn');return;}
@@ -2239,8 +2330,8 @@ function renderProdRows(list){
       <td>${p.sold}</td>
       <td><span class="bdg ${sbdg}">${status}</span></td>
       <td style="display:flex;gap:5px">
-        <button class="btn btn-ghost btn-sm" onclick="restockModal(${p.id})">Restock</button>
-        <button class="btn btn-danger btn-sm" onclick="deleteProduct(${p.id})">Del</button>
+        <button class="btn btn-ghost btn-sm" onclick="restockModal('${p.id}')">Restock</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteProduct('${p.id}')">Del</button>
       </td>
     </tr>`;
   }).join('') || `<tr><td colspan="10" style="text-align:center;color:var(--muted2);padding:24px">No products match your search.</td></tr>`;
@@ -2279,7 +2370,7 @@ function openAddProduct(){
       <small style="color:var(--muted2);display:block;margin-top:4px">The stock level that triggers a "Low Stock" warning — set it to how many units you'd want left when you go restock.</small>
     </div>
   </div>
-  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="saveProduct()">Add Product</button></div>`);
+  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="if(this.disabled)return;this.disabled=true;saveProduct().finally(()=>this.disabled=false)">Add Product</button></div>`);
 }
 async function saveProduct(){
   const name=v('p-name'); if(!name){toast('Name required','warn');return;}
@@ -2367,7 +2458,7 @@ function openAddExpense(){
     <div class="field"><label>Payment Method</label><select id="ex-meth"><option>Cash</option><option>Transfer</option><option>Card</option><option>POS</option></select></div>
     <div class="field span2"><label>Description (optional)</label><input id="ex-desc" placeholder="Any extra detail"></div>
   </div>
-  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="saveExpense()">Save Expense</button></div>`);
+  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="if(this.disabled)return;this.disabled=true;saveExpense().finally(()=>this.disabled=false)">Save Expense</button></div>`);
 }
 async function saveExpense(){
   const name=v('ex-name'), amt=+v('ex-amt')||0;
@@ -2469,7 +2560,7 @@ function openSetOpeningCash(){
   openModal(`<h2>🏦 Set Opening Cash</h2>
   <p style="color:var(--muted2);font-size:.82rem;margin-bottom:14px">How much cash did your business actually have on hand at the start of this period? This anchors your Cash Flow calculation.</p>
   <div class="field"><label>Opening Cash (${curSym()})</label><input id="oc-amt" type="number" value="${DB.business.openingCash}"></div>
-  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="saveOpeningCash()">Save</button></div>`);
+  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="if(this.disabled)return;this.disabled=true;saveOpeningCash().finally(()=>this.disabled=false)">Save</button></div>`);
 }
 async function saveOpeningCash(){
   const amt = +v('oc-amt')||0;
@@ -2789,6 +2880,18 @@ R.profile = ()=>{
         </div>
       </div>`:''}
       <div class="panel" style="margin-bottom:18px">
+        <div class="panel-head"><h3>⬇️ Download Your Data</h3></div>
+        <div class="panel-body">
+          <p style="color:var(--muted2);font-size:.8rem;margin-bottom:14px">Your business data is yours. Export any of it as a CSV file, anytime — no need to ask us for it.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-ghost btn-sm" onclick="exportSales()">📄 Sales (${DB.sales.length})</button>
+            <button class="btn btn-ghost btn-sm" onclick="exportCustomers()">📄 Customers (${DB.customers.length})</button>
+            <button class="btn btn-ghost btn-sm" onclick="exportExpenses()">📄 Expenses (${DB.expenses.length})</button>
+            <button class="btn btn-ghost btn-sm" onclick="exportProducts()">📄 Products (${DB.products.length})</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel" style="margin-bottom:18px">
         <div class="panel-head"><h3>🖼️ Business Logo & Profile Picture</h3></div>
         <div class="panel-body">
           <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">
@@ -2955,7 +3058,7 @@ function openAddStaff(){
     <div class="field span2"><label>Email Address</label><input id="as-email" type="email" placeholder="staff@email.com"></div>
     <div class="field span2"><label>Role</label><select id="as-role"><option value="sales">Sales — records sales, views customers</option><option value="manager">Manager — full access except billing</option></select></div>
   </div>
-  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="addStaff()">Send Invite</button></div>`);
+  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="if(this.disabled)return;this.disabled=true;addStaff().finally(()=>this.disabled=false)">Send Invite</button></div>`);
 }
 async function addStaff(){
   const name=v('as-name'), email=v('as-email').toLowerCase(), role=document.getElementById('as-role').value;
@@ -3068,7 +3171,7 @@ function openSetSalary(){
     <div class="field span2"><label>Staff Member</label><select id="sl-staff">${options}</select></div>
     <div class="field span2"><label>Monthly Salary (${curSym()})</label><input id="sl-amt" type="number" placeholder="150000"></div>
   </div>
-  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="saveSalary()">Save</button></div>`);
+  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="if(this.disabled)return;this.disabled=true;saveSalary().finally(()=>this.disabled=false)">Save</button></div>`);
 }
 async function saveSalary(){
   const [staffId, staffName] = document.getElementById('sl-staff').value.split('|');
@@ -3486,7 +3589,7 @@ R.whatsapp = ()=>{
       <div class="form-grid">
         <div class="field span2"><label>Phone Number ID (from Meta — not secret)</label><input id="wa-phone-id" value="${settings.phone_number_id||''}" placeholder="e.g. 109876543210987"></div>
       </div>
-      <button class="btn btn-gold" onclick="saveWhatsappSettings()">Save</button>
+      <button class="btn btn-gold" onclick="if(this.disabled)return;this.disabled=true;saveWhatsappSettings().finally(()=>this.disabled=false)">Save</button>
     </div>
   </div>
 
@@ -3541,7 +3644,7 @@ function openAddAutoReply(){
     <div class="field span2"><label>Trigger Keyword</label><input id="ar-keyword" placeholder="e.g. price"></div>
     <div class="field span2"><label>Auto-Reply Message</label><input id="ar-reply" placeholder="e.g. Thanks for reaching out! Our prices start at..."></div>
   </div>
-  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="saveAutoReply()">Save Rule</button></div>`);
+  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="if(this.disabled)return;this.disabled=true;saveAutoReply().finally(()=>this.disabled=false)">Save Rule</button></div>`);
 }
 async function saveAutoReply(){
   const keyword = v('ar-keyword'), reply = v('ar-reply');
@@ -3592,13 +3695,14 @@ async function sendBroadcast(){
 
 
 //  PLATFORM — visible ONLY to you (platform_admin), across every
-//  business built on SamDlight OS
+//  business built on SamDlight OS. Split into 8 distinct sections per the
+//  Platform Admin Dashboard spec — each is its own page/route (via go()),
+//  not a tab on one combined screen, so each can carry its own permission
+//  boundary and be extended independently without touching the others.
 // ══════════════════════════════════════════
-R.platform = ()=>{
+R.platformdash = ()=>{
   const o = DB.platformOverview;
-  const biz = DB.platformBusinesses||[];
   const wl = DB.waitlist||[];
-
   document.getElementById('body').innerHTML = `
   <div class="kpi-row" style="margin-bottom:18px">
     <div class="kpi"><div class="kpi-val">${o?.totalBusinesses||0}</div><div class="kpi-label">Total Registered Businesses</div></div>
@@ -3612,9 +3716,23 @@ R.platform = ()=>{
     <div class="kpi"><div class="kpi-val">${o?.newThisWeek||0}</div><div class="kpi-label">New This Week</div></div>
     <div class="kpi"><div class="kpi-val">${o?.newThisMonth||0}</div><div class="kpi-label">New This Month</div></div>
   </div>
+  <div class="panel">
+    <div class="panel-head"><h3>Quick Links</h3></div>
+    <div class="panel-body" style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn btn-ghost btn-sm" onclick="go('platformbiz',null)">🌐 View All Businesses</button>
+      <button class="btn btn-ghost btn-sm" onclick="go('support',null)">🔐 Support Requests</button>
+      <button class="btn btn-ghost btn-sm" onclick="go('platformaudit',null)">📜 Audit Logs</button>
+    </div>
+  </div>`;
+};
+
+R.platformbiz = ()=>{
+  const biz = DB.platformBusinesses||[];
+  const wl = DB.waitlist||[];
+  document.getElementById('body').innerHTML = `
   <div class="panel" style="margin-bottom:18px">
-    <div class="panel-head"><h3>🌐 Registered Businesses</h3>
-      <span class="c-muted" style="font-size:.68rem">Click a business to view its dashboard</span>
+    <div class="panel-head"><h3>🌐 Registered Businesses (${biz.length})</h3>
+      <span class="c-muted" style="font-size:.68rem">Click a business for a platform-level overview (counts only — not real records)</span>
     </div>
     <div class="panel-body flush">
       <table class="tbl"><thead><tr><th>Business</th><th>Owner</th><th>Plan</th><th>Status</th><th>Users</th><th>Last Activity</th></tr></thead>
@@ -3647,6 +3765,127 @@ R.platform = ()=>{
   </div>`;
 };
 
+// ── SUBSCRIPTIONS ────────────────────────────────────────────────────────
+R.platformsubs = ()=>{
+  const biz = DB.platformBusinesses||[];
+  const planCounts = {};
+  biz.forEach(b=>{ planCounts[b.plan] = (planCounts[b.plan]||0)+1; });
+  const today = new Date();
+  const expiringSoon = biz.filter(b=>{
+    if(!b.periodEnd) return false;
+    const days = (new Date(b.periodEnd) - today) / 86400000;
+    return days >= 0 && days <= 7;
+  });
+  const expired = biz.filter(b=> b.subStatus==='expired' || (b.periodEnd && new Date(b.periodEnd) < today));
+  document.getElementById('body').innerHTML = `
+  <div class="kpi-row" style="margin-bottom:18px">
+    ${Object.entries(planCounts).map(([plan,count])=>`<div class="kpi"><div class="kpi-val">${count}</div><div class="kpi-label" style="text-transform:capitalize">${plan}</div></div>`).join('')}
+  </div>
+  <div class="panel" style="margin-bottom:18px">
+    <div class="panel-head"><h3>⏰ Approaching Expiry (next 7 days)</h3></div>
+    <div class="panel-body flush">
+      ${expiringSoon.length?`<table class="tbl"><thead><tr><th>Business</th><th>Plan</th><th>Expires</th></tr></thead>
+      <tbody>${expiringSoon.map(b=>`<tr><td style="font-weight:600">${b.name}</td><td><span class="bdg bdg-amber">${b.plan}</span></td><td class="c-muted">${new Date(b.periodEnd).toLocaleDateString()}</td></tr>`).join('')}</tbody></table>`
+      :'<div class="empty"><div class="empty-icon">✅</div><h3>Nothing expiring soon</h3></div>'}
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h3>⚠️ Expired / Needs Attention</h3></div>
+    <div class="panel-body flush">
+      ${expired.length?`<table class="tbl"><thead><tr><th>Business</th><th>Plan</th><th>Status</th><th>Expired</th></tr></thead>
+      <tbody>${expired.map(b=>`<tr><td style="font-weight:600">${b.name}</td><td>${b.plan}</td><td><span class="bdg bdg-red">${b.subStatus}</span></td><td class="c-muted">${b.periodEnd?new Date(b.periodEnd).toLocaleDateString():'—'}</td></tr>`).join('')}</tbody></table>`
+      :'<div class="empty"><div class="empty-icon">✅</div><h3>No expired subscriptions</h3></div>'}
+      <p style="padding:12px 16px;color:var(--muted2);font-size:.72rem">Individual upgrade requests are approved from a business's own Billing settings once payment is arranged — see Support for business-specific issues.</p>
+    </div>
+  </div>`;
+};
+
+// ── USERS ────────────────────────────────────────────────────────────────
+R.platformusers = async ()=>{
+  document.getElementById('body').innerHTML = `<div class="empty"><div class="empty-icon">⏳</div><h3>Loading users…</h3></div>`;
+  const { data, error } = await sb.from('profiles').select('id,name,email,role,business_id,is_platform_admin,created_at').order('created_at',{ascending:false}).limit(500);
+  if(error){ document.getElementById('body').innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><h3>${error.message}</h3></div>`; return; }
+  const bizById = {}; (DB.platformBusinesses||[]).forEach(b=>bizById[b.id]=b.name);
+  document.getElementById('body').innerHTML = `
+  <div class="panel">
+    <div class="panel-head"><h3>👤 All Platform Users (${data.length})</h3></div>
+    <div class="panel-body flush">
+      <table class="tbl"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Business</th><th>Joined</th></tr></thead>
+      <tbody>${data.map(u=>`<tr>
+        <td style="font-weight:600">${u.name}${u.is_platform_admin?' <span class="bdg bdg-gold">Platform Admin</span>':''}</td>
+        <td class="c-muted">${u.email}</td>
+        <td><span class="bdg bdg-green">${u.role}</span></td>
+        <td class="c-muted">${bizById[u.business_id]||'—'}</td>
+        <td class="c-muted" style="font-size:.72rem">${new Date(u.created_at).toLocaleDateString()}</td>
+      </tr>`).join('')}</tbody></table>
+    </div>
+  </div>`;
+};
+
+// ── ANALYTICS ────────────────────────────────────────────────────────────
+R.platformanalytics = ()=>{
+  const o = DB.platformOverview;
+  const biz = DB.platformBusinesses||[];
+  const wl = DB.waitlist||[];
+  const conversionRate = wl.length ? Math.round((biz.length / (biz.length + wl.length)) * 100) : 0;
+  document.getElementById('body').innerHTML = `
+  <div class="kpi-row" style="margin-bottom:18px">
+    <div class="kpi"><div class="kpi-val">${o?.newThisWeek||0}</div><div class="kpi-label">New Businesses This Week</div></div>
+    <div class="kpi"><div class="kpi-val">${o?.newThisMonth||0}</div><div class="kpi-label">New Businesses This Month</div></div>
+    <div class="kpi"><div class="kpi-val">${o?.totalTransactions||0}</div><div class="kpi-label">Total Transactions (all-time)</div></div>
+    <div class="kpi"><div class="kpi-val">${o?.totalStaff||0}</div><div class="kpi-label">Total Staff Accounts</div></div>
+  </div>
+  <div class="panel" style="margin-bottom:18px">
+    <div class="panel-head"><h3>📈 Growth Funnel</h3></div>
+    <div class="panel-body">
+      <p style="color:var(--muted2);font-size:.85rem">Waitlist signups: <b style="color:var(--white)">${wl.length}</b> → Registered businesses: <b style="color:var(--white)">${biz.length}</b> (~${conversionRate}% of combined funnel have converted to a real workspace)</p>
+    </div>
+  </div>
+  <p style="color:var(--muted2);font-size:.72rem">Deeper cohort/retention analytics (e.g. week-over-week active usage per business) aren't built yet — this page shows what's calculable from existing platform data today.</p>`;
+};
+
+// ── AUDIT LOGS ───────────────────────────────────────────────────────────
+R.platformaudit = async ()=>{
+  document.getElementById('body').innerHTML = `<div class="empty"><div class="empty-icon">⏳</div><h3>Loading audit log…</h3></div>`;
+  const { data, error } = await sb.from('platform_audit_log').select('*').order('created_at',{ascending:false}).limit(200);
+  if(error){ document.getElementById('body').innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><h3>${error.message}</h3></div>`; return; }
+  document.getElementById('body').innerHTML = `
+  <div class="panel">
+    <div class="panel-head"><h3>📜 Platform Audit Log (most recent 200)</h3></div>
+    <div class="panel-body flush">
+      ${data.length?`<table class="tbl"><thead><tr><th>When</th><th>Action</th><th>Result</th><th>Reason</th></tr></thead>
+      <tbody>${data.map(a=>`<tr>
+        <td class="c-muted" style="font-size:.72rem">${new Date(a.created_at).toLocaleString()}</td>
+        <td style="font-weight:600">${a.action}</td>
+        <td><span class="bdg ${a.result==='granted'||a.result==='approved'||a.result==='active'?'bdg-green':a.result==='rejected'?'bdg-red':'bdg-amber'}">${a.result||'—'}</span></td>
+        <td class="c-muted" style="font-size:.78rem">${a.reason||'—'}</td>
+      </tr>`).join('')}</tbody></table>`
+      :'<div class="empty"><div class="empty-icon">📜</div><h3>No audit entries yet</h3></div>'}
+    </div>
+  </div>`;
+};
+
+// ── PLATFORM SETTINGS ────────────────────────────────────────────────────
+R.platformsettings = async ()=>{
+  document.getElementById('body').innerHTML = `<div class="empty"><div class="empty-icon">⏳</div><h3>Loading…</h3></div>`;
+  const { data, error } = await sb.from('plan_configs').select('*').order('sort_order');
+  if(error){ document.getElementById('body').innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><h3>${error.message}</h3></div>`; return; }
+  document.getElementById('body').innerHTML = `
+  <div class="panel">
+    <div class="panel-head"><h3>⚙️ Subscription Plans</h3></div>
+    <div class="panel-body flush">
+      <table class="tbl"><thead><tr><th>Plan</th><th>Price (₦)</th><th>Staff Limit</th><th>AI Queries/mo</th></tr></thead>
+      <tbody>${data.map(p=>`<tr>
+        <td style="font-weight:600">${p.display_name}</td>
+        <td class="c-gold">${p.price!=null?'₦'+(+p.price).toLocaleString():'Custom'}</td>
+        <td class="c-muted">${p.staff_limit}</td>
+        <td class="c-muted">${p.ai_query_limit}</td>
+      </tr>`).join('')}</tbody></table>
+    </div>
+  </div>
+  <p style="color:var(--muted2);font-size:.72rem;margin-top:12px">Plan pricing/limits are stored in <code>plan_configs</code> and can be edited directly in Supabase for now — an in-app editor here is a reasonable next addition if you want it.</p>`;
+};
+
 // ══════════════════════════════════════════
 //  SUPPORT ACCESS — Platform Admin side: request access to a business
 // ══════════════════════════════════════════
@@ -3655,39 +3894,41 @@ const ACCESS_LEVEL_LABELS = { diagnostic:'Level 1 — Diagnostic (read-only, non
 //  DIRECT BUSINESS VIEW — platform admin can open any business's real
 //  dashboard immediately, no request/approval flow required.
 // ══════════════════════════════════════════
+// ══════════════════════════════════════════
+//  BUSINESS DETAILS — platform admin sees ONLY platform-level metadata and
+//  aggregate counts here (never real sales/customer/financial content).
+//  Actual business data requires going through Request Support Access
+//  below, which needs the owner's approval + OTP confirmation first.
+// ══════════════════════════════════════════
 async function viewBusinessAsAdmin(bizId, bizName){
-  const [{data:sales},{data:customers},{data:expenses},{data:products}] = await Promise.all([
-    sb.from('sales').select('*').eq('business_id', bizId),
-    sb.from('customers').select('*').eq('business_id', bizId),
-    sb.from('expenses').select('*').eq('business_id', bizId),
-    sb.from('products').select('*').eq('business_id', bizId),
-  ]);
-  const paidRevenue = (sales||[]).filter(s=>s.status==='Paid').reduce((a,s)=>a+ +s.amount,0);
-  const totalExpenses = (expenses||[]).reduce((a,e)=>a+ +e.amount,0);
+  const { data: d, error } = await sb.rpc('platform_business_detail', { target_business_id: bizId }).single();
+  if(error){ toast(error.message.replace(/^.*?:\s*/,''),'warn'); return; }
   document.getElementById('ph').textContent = bizName;
-  document.getElementById('ps').textContent = 'Viewing as Platform Admin';
+  document.getElementById('ps').textContent = 'Platform-level business overview';
   document.getElementById('body').innerHTML = `
-  <button class="btn btn-ghost btn-sm" style="margin-bottom:14px" onclick="go('platform',null)">← Back to All Businesses</button>
-  <div class="kpi-row" style="margin-bottom:18px">
-    <div class="kpi"><div class="kpi-val c-gold">${curSym()}${paidRevenue.toLocaleString()}</div><div class="kpi-label">Total Revenue</div></div>
-    <div class="kpi"><div class="kpi-val c-red">${curSym()}${totalExpenses.toLocaleString()}</div><div class="kpi-label">Total Expenses</div></div>
-    <div class="kpi"><div class="kpi-val">${(customers||[]).length}</div><div class="kpi-label">Customers</div></div>
-    <div class="kpi"><div class="kpi-val">${(products||[]).length}</div><div class="kpi-label">Products</div></div>
-  </div>
-  <div class="panel" style="margin-bottom:18px">
-    <div class="panel-head"><h3>💰 Sales</h3></div>
-    <div class="panel-body flush">
-      ${(sales||[]).length?`<table class="tbl"><thead><tr><th>Date</th><th>Customer</th><th>Product</th><th>Amount</th><th>Status</th></tr></thead>
-      <tbody>${(sales||[]).slice(0,50).map(s=>`<tr><td class="c-muted">${s.date}</td><td style="font-weight:600">${s.customer}</td><td class="c-muted">${s.product||'—'}</td><td class="c-gold" style="font-weight:700">${curSym()}${(+s.amount).toLocaleString()}</td><td><span class="bdg ${s.status==='Paid'?'bdg-green':'bdg-amber'}">${s.status}</span></td></tr>`).join('')}</tbody></table>`
-      :'<div class="empty"><div class="empty-icon">💰</div><h3>No sales yet</h3></div>'}
+  <button class="btn btn-ghost btn-sm" style="margin-bottom:14px" onclick="go('platformbiz',null)">← Back to All Businesses</button>
+  <div class="panel" style="margin-bottom:18px;border-color:var(--gold)">
+    <div class="panel-body" style="font-size:.82rem;color:var(--muted2)">
+      🔒 This is a platform-level summary only — counts, not real records. Viewing actual sales, customer names, or transaction detail requires the owner's approval via Request Support Access below. This page never grants that access automatically.
     </div>
   </div>
+  <div class="kpi-row" style="margin-bottom:18px">
+    <div class="kpi"><div class="kpi-val">${d.owner_name||'—'}</div><div class="kpi-label">Owner</div></div>
+    <div class="kpi"><div class="kpi-val"><span class="bdg bdg-green">${d.plan}</span></div><div class="kpi-label">Plan</div></div>
+    <div class="kpi"><div class="kpi-val">${d.subscription_status}</div><div class="kpi-label">Subscription Status</div></div>
+    <div class="kpi"><div class="kpi-val">${new Date(d.created_at).toLocaleDateString()}</div><div class="kpi-label">Joined</div></div>
+  </div>
+  <div class="kpi-row" style="margin-bottom:18px">
+    <div class="kpi"><div class="kpi-val">${d.user_count}</div><div class="kpi-label">Staff</div></div>
+    <div class="kpi"><div class="kpi-val">${d.sales_count}</div><div class="kpi-label">Sales Recorded</div></div>
+    <div class="kpi"><div class="kpi-val">${d.customers_count}</div><div class="kpi-label">Customers</div></div>
+    <div class="kpi"><div class="kpi-val">${d.products_count}</div><div class="kpi-label">Products</div></div>
+  </div>
   <div class="panel">
-    <div class="panel-head"><h3>👥 Customers</h3></div>
-    <div class="panel-body flush">
-      ${(customers||[]).length?`<table class="tbl"><thead><tr><th>Name</th><th>Phone</th><th>Total Spent</th><th>Status</th></tr></thead>
-      <tbody>${(customers||[]).slice(0,50).map(c=>`<tr><td style="font-weight:600">${c.name}</td><td class="c-muted">${c.phone||'—'}</td><td class="c-gold" style="font-weight:700">${curSym()}${(+c.total_spent).toLocaleString()}</td><td class="c-muted">${c.status}</td></tr>`).join('')}</tbody></table>`
-      :'<div class="empty"><div class="empty-icon">👥</div><h3>No customers yet</h3></div>'}
+    <div class="panel-head"><h3>Need to look into an issue for this business?</h3></div>
+    <div class="panel-body">
+      <p style="color:var(--muted2);font-size:.82rem;margin-bottom:14px">Request temporary support access — the owner must approve and confirm a one-time code before any real data becomes visible.</p>
+      <button class="btn btn-gold" onclick="go('support',null); setTimeout(()=>{ const sel=document.getElementById('sa-biz'); if(sel) sel.value='${bizId}'; }, 50)">Request Support Access</button>
     </div>
   </div>`;
 }
