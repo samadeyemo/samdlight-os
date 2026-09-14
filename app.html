@@ -253,7 +253,7 @@
       <div class="topbar-right">
         <div class="offline-indicator" id="offline-indicator"></div>
         <div class="topbar-theme-btn" id="topbar-theme-btn" onclick="toggleTheme()">🌙</div>
-        <div class="notif-btn" onclick="toast('3 alerts need your attention')">🔔<span class="notif-dot"></span></div>
+        <div class="notif-btn" id="notif-btn" onclick="go('growth',null)">🔔<span class="notif-dot" id="notif-dot" style="display:none"></span></div>
         <div class="topbar-av" id="tav" onclick="go('profile',null)">?</div>
       </div>
     </div>
@@ -333,9 +333,6 @@ const DB = {
   whatsappSettings: { phone_number_id:'', connected:false },
   whatsappRules: [],
   whatsappMessages: [],
-  activities: [
-    { type:'info', msg:'Welcome to SamDlight OS — activity will appear here as your business grows.', time:'Just now', color:'#F59E0B' }
-  ]
 };
 
 // ══════════════════════════════════════════
@@ -500,6 +497,30 @@ function exportProducts(){
   downloadCSV('products.csv', DB.products.map(p=>({sku:p.sku, name:p.name, category:p.cat, price:p.price, cost:p.cost, stock:p.stock, sold:p.sold})),
     ['sku','name','category','price','cost','stock','sold']);
   logActivity('Exported product data as CSV');
+}
+function exportFinancials(){
+  // Month-by-month Revenue / COGS / Gross Profit / Expenses / Net Profit /
+  // Cash In / Cash Out, computed from the same real sales+expenses records
+  // as the in-app Cash Flow page — going back to the earliest recorded
+  // sale or expense (or 12 months, whichever is shorter).
+  const allDates = [...DB.sales.map(s=>s.date), ...DB.expenses.map(e=>e.date)].filter(Boolean).sort();
+  const earliest = allDates.length ? allDates[0].slice(0,7) : todayStr().slice(0,7);
+  const months = [];
+  let cursor = new Date(todayStr().slice(0,7)+'-01');
+  const earliestDate = new Date(earliest+'-01');
+  while(cursor >= earliestDate && months.length < 12){
+    months.unshift(cursor.toISOString().slice(0,7));
+    cursor.setMonth(cursor.getMonth()-1);
+  }
+  const rows = months.map(m=>{
+    const from = m+'-01', to = m+'-31';
+    const f = financials(from, to);
+    const cashIn = DB.sales.filter(s=>s.status==='Paid' && s.date>=from && s.date<=to).reduce((a,s)=>a+s.amount,0);
+    const cashOut = DB.expenses.filter(e=>e.date>=from && e.date<=to).reduce((a,e)=>a+e.amount,0);
+    return { month:m, revenue:f.revenue, cogs:f.cogs, gross_profit:f.grossProfit, operating_expenses:f.totalExpenses, net_profit:f.netProfit, cash_in:cashIn, cash_out:cashOut, net_cash_flow:cashIn-cashOut };
+  });
+  downloadCSV('profit-and-cashflow.csv', rows, ['month','revenue','cogs','gross_profit','operating_expenses','net_profit','cash_in','cash_out','net_cash_flow']);
+  logActivity('Exported profit & cash flow data as CSV');
 }
 function renderTopbarAvatar(){
   const el = document.getElementById('tav');
@@ -775,6 +796,14 @@ function yesterdayStr(){
 function todayLong(){
   return new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
 }
+function relativeTime(ts){
+  const diff = (Date.now() - new Date(ts).getTime()) / 1000;
+  if(diff < 60) return 'Just now';
+  if(diff < 3600) return `${Math.floor(diff/60)} minute${Math.floor(diff/60)===1?'':'s'} ago`;
+  if(diff < 86400) return `${Math.floor(diff/3600)} hour${Math.floor(diff/3600)===1?'':'s'} ago`;
+  if(diff < 604800) return `${Math.floor(diff/86400)} day${Math.floor(diff/86400)===1?'':'s'} ago`;
+  return new Date(ts).toLocaleDateString();
+}
 function initialsOf(name){
   return name.trim().split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase();
 }
@@ -978,7 +1007,12 @@ async function submitWaitlist(){
 // double-clicked into triggering that limit in the first place.
 function friendlyAuthError(msg){
   const m = msg.match(/after (\d+) seconds/i);
-  if(m) return `You're going a bit fast — please wait ${m[1]} seconds and try again.`;
+  if(m){
+    const secs = parseInt(m[1], 10);
+    return secs > 0
+      ? `You're going a bit fast — please wait ${secs} second${secs===1?'':'s'} and try again.`
+      : `You're going a bit fast — please wait a moment and try again.`;
+  }
   return msg;
 }
 async function guardedClick(btnId, fn){
@@ -1125,6 +1159,7 @@ async function loadSession(){
   document.getElementById('s-login').classList.remove('on');
   document.getElementById('app').classList.add('on');
   renderTopbarAvatar();
+  updateNotifBell();
   buildSB();
   go('growth', null);
 }
@@ -1290,8 +1325,18 @@ async function logout(){
 // call below (in resumeSession) can run before that finishes. Without this,
 // the person is stuck looking at the login screen with a valid session.
 let SD_SESSION_LOADING = false;
-sb.auth.onAuthStateChange((event)=>{
+sb.auth.onAuthStateChange(async (event)=>{
   if(event==='SIGNED_OUT'){
+    // Supabase can emit SIGNED_OUT transiently — e.g. a background token
+    // refresh that briefly fails — without the session actually being
+    // gone. Double-check with a fresh getSession() before forcing the
+    // logout screen, so a real, valid session isn't thrown away on a
+    // page refresh due to a momentary hiccup.
+    const { data:{ session } } = await sb.auth.getSession();
+    if(session){
+      console.warn('SIGNED_OUT event fired but a valid session still exists — ignoring.');
+      return;
+    }
     document.getElementById('app').classList.remove('on');
     document.getElementById('s-login').classList.add('on');
   } else if((event==='SIGNED_IN' || event==='INITIAL_SESSION') && !document.getElementById('app').classList.contains('on') && !SD_SESSION_LOADING){
@@ -1331,7 +1376,8 @@ sb.auth.onAuthStateChange((event)=>{
     }
     return; // do not proceed to normal login flow
   }
-  const { data:{ session } } = await sb.auth.getSession();
+  const { data:{ session }, error: sessionErr } = await sb.auth.getSession();
+  if(sessionErr) console.error('getSession() failed on page load:', sessionErr);
   if(session && !SD_SESSION_LOADING){
     SD_SESSION_LOADING = true;
     await loadSession().finally(()=>{ SD_SESSION_LOADING = false; });
@@ -1774,6 +1820,16 @@ R.growth = ()=>{
     </div>
   </div>
 
+  <div class="panel" style="margin-bottom:16px">
+    <div class="panel-head"><h3>⚡ Quick Actions</h3></div>
+    <div class="panel-body" style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn btn-gold btn-sm" onclick="openAddSale()">💰 Record a Sale</button>
+      <button class="btn btn-ghost btn-sm" onclick="openAddProduct()">📦 Add Product</button>
+      <button class="btn btn-ghost btn-sm" onclick="go('team',null)">👥 Invite Team</button>
+      <button class="btn btn-ghost btn-sm" onclick="go('reports',null)">📄 Generate Report</button>
+    </div>
+  </div>
+
   <div class="g2" style="margin-bottom:16px">
     <!-- LEFT: RECOMMENDATIONS -->
     <div style="grid-column:1/2">
@@ -1848,11 +1904,15 @@ R.growth = ()=>{
       <div class="panel">
         <div class="panel-head"><h3>📡 Live Activity Feed</h3></div>
         <div class="panel-body">
-          ${DB.activities.map(a=>`
+          ${DB.activity.length ? DB.activity.slice(0,10).map(a=>`
           <div class="act-item">
-            <div class="act-dot" style="background:${a.color}"></div>
-            <div><div class="act-text">${a.msg}</div><div class="act-time">${a.time}</div></div>
-          </div>`).join('')}
+            <div class="act-dot" style="background:#F59E0B"></div>
+            <div><div class="act-text">${a.staffName?a.staffName+' — ':''}${a.action}</div><div class="act-time">${relativeTime(a.time)}</div></div>
+          </div>`).join('') : `
+          <div class="act-item">
+            <div class="act-dot" style="background:#F59E0B"></div>
+            <div><div class="act-text">Welcome to SamDlight OS — activity will appear here as your business grows.</div><div class="act-time">Just now</div></div>
+          </div>`}
         </div>
       </div>
     </div>
@@ -2522,7 +2582,7 @@ R.cashflow = ()=>{
     </div>
   </div>
   <div class="panel" style="margin:18px 0">
-    <div class="panel-head"><h3>📊 Profit & Loss — This Month</h3></div>
+    <div class="panel-head"><h3>📊 Profit & Loss — This Month</h3><button class="btn btn-ghost btn-sm" onclick="exportFinancials()">⬇️ Export CSV</button></div>
     <div class="panel-body">
       <div style="display:flex;flex-direction:column;gap:0">
         <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
@@ -2888,6 +2948,7 @@ R.profile = ()=>{
             <button class="btn btn-ghost btn-sm" onclick="exportCustomers()">📄 Customers (${DB.customers.length})</button>
             <button class="btn btn-ghost btn-sm" onclick="exportExpenses()">📄 Expenses (${DB.expenses.length})</button>
             <button class="btn btn-ghost btn-sm" onclick="exportProducts()">📄 Products (${DB.products.length})</button>
+            <button class="btn btn-ghost btn-sm" onclick="exportFinancials()">📄 Profit & Cash Flow (last 12 months)</button>
           </div>
         </div>
       </div>
@@ -3010,9 +3071,11 @@ R.team = ()=>{
         <button class="btn btn-gold btn-sm" onclick="openAddStaff()" ${seatsUsed>=DB.business.staffLimit?'disabled':''}>+ Add Staff</button>
       </div>
       <div class="panel-body flush">
-        <table class="tbl"><thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead>
-        <tbody>${DB.users.map(u=>`<tr><td style="font-weight:600">${u.name}</td><td class="c-muted">${u.email}</td><td><span class="bdg bdg-green">${u.role}</span></td></tr>`).join('')}
-        ${DB.pending.map(p=>`<tr><td style="font-weight:600">${p.name}</td><td class="c-muted">${p.email}</td><td><span class="bdg bdg-amber">Invited (${p.role})</span></td></tr>`).join('')}
+        <table class="tbl"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr></thead>
+        <tbody>${DB.users.map(u=>`<tr><td style="font-weight:600">${u.name}</td><td class="c-muted">${u.email}</td><td><span class="bdg bdg-green">${u.role}</span></td>
+        <td>${(perms.canDelete && u.role!=='owner' && u.id!==ME.id)?`<button class="btn btn-danger btn-sm" onclick="removeStaffMember('${u.id}','${u.name.replace(/'/g,"\\'")}')">Remove</button>`:''}</td></tr>`).join('')}
+        ${DB.pending.map(p=>`<tr><td style="font-weight:600">${p.name}</td><td class="c-muted">${p.email}</td><td><span class="bdg bdg-amber">Invited (${p.role})</span></td>
+        <td>${perms.canDelete?`<button class="btn btn-ghost btn-sm" onclick="cancelPendingInvite('${p.id}')">Cancel Invite</button>`:''}</td></tr>`).join('')}
         </tbody></table>
         <div style="padding:12px 16px;color:var(--muted2);font-size:.78rem">
           ${seatsUsed} of ${DB.business.staffLimit} seats used on the <b style="color:var(--gold)">${DB.business.plan}</b> plan.
@@ -3050,6 +3113,21 @@ R.team = ()=>{
   </div>`}`;
 };
 
+async function removeStaffMember(id, name){
+  if(!confirm(`Remove ${name} from your team? They'll lose access to this business immediately.`)) return;
+  const { error } = await sb.rpc('remove_staff_member', { target_profile_id: id });
+  if(error){ toast(error.message.replace(/^.*?:\s*/,''),'warn'); return; }
+  await refreshAllData();
+  R.team(); toast(`${name} removed from the team`);
+}
+async function cancelPendingInvite(id){
+  if(!confirm('Cancel this invite?')) return;
+  const { error } = await sb.from('pending_staff').delete().eq('id', id);
+  if(error){ toast(error.message.replace(/^.*?:\s*/,''),'warn'); return; }
+  await logActivity('Cancelled a pending staff invite');
+  await refreshAllData();
+  R.team(); toast('Invite cancelled');
+}
 function openAddStaff(){
   openModal(`<h2>🧑‍🤝‍🧑 Add Staff Member</h2>
   <p style="color:var(--muted2);font-size:.82rem;margin-bottom:14px">They'll get access once they sign up on the "Join Team" tab using your invite code (${DB.business.inviteCode}) and this same email.</p>
@@ -4002,7 +4080,13 @@ R.support = ()=>{
 };
 async function markNotifRead(id){
   await sb.from('business_notifications').update({ read:true }).eq('id', id);
-  await refreshAllData(); R.growth();
+  await refreshAllData(); R.growth(); updateNotifBell();
+}
+function updateNotifBell(){
+  const dot = document.getElementById('notif-dot');
+  if(!dot) return;
+  const hasUnread = (DB.notifications||[]).some(n=>!n.read);
+  dot.style.display = hasUnread ? 'block' : 'none';
 }
 async function grantEmergencyAccess(){
   const bizId = document.getElementById('em-biz').value;
