@@ -69,6 +69,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    background: var(--black);
     background: color-mix(in srgb, var(--black) 90%, transparent);
     backdrop-filter: blur(20px);
     border-bottom: 1px solid var(--border);
@@ -86,7 +87,8 @@
   .nav-burger span { width: 22px; height: 2px; background: var(--white); border-radius: 2px; }
   .nav-links.mobile-open {
     display: flex !important; position: absolute; top: 68px; left: 0; right: 0; flex-direction: column;
-    align-items: flex-start; gap: 0; background: color-mix(in srgb, var(--black) 98%, transparent);
+    align-items: flex-start; gap: 0; background: var(--black);
+    background: color-mix(in srgb, var(--black) 98%, transparent);
     border-bottom: 1px solid var(--border); padding: 0.5rem 5% 1.25rem;
   }
   .nav-links.mobile-open li { width: 100%; padding: 0.75rem 0; border-bottom: 1px solid var(--border); }

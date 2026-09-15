@@ -2622,6 +2622,16 @@ function openSetOpeningCash(){
   <div class="field"><label>Opening Cash (${curSym()})</label><input id="oc-amt" type="number" value="${DB.business.openingCash}"></div>
   <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="if(this.disabled)return;this.disabled=true;saveOpeningCash().finally(()=>this.disabled=false)">Save</button></div>`);
 }
+async function saveBusinessName(){
+  const name = v('biz-name-input').trim();
+  if(!name){ toast('Business name cannot be empty','warn'); return; }
+  const { error } = await sb.from('businesses').update({ name }).eq('id', DB.business.id);
+  if(error){ toast(error.message.replace(/^.*?:\s*/,''),'warn'); return; }
+  DB.business.name = name;
+  await logActivity('Updated business name');
+  buildSB();
+  toast('Business name updated');
+}
 async function saveOpeningCash(){
   const amt = +v('oc-amt')||0;
   const { error } = await sb.from('businesses').update({ opening_cash: amt }).eq('id', DB.business.id);
@@ -2903,8 +2913,13 @@ R.aiadvisor = ()=>{
 
 /* ── PROFILE ── */
 R.profile = ()=>{
-  const mySales=DB.sales.filter(s=>s.staff===ME.name.split(' ')[0]);
-  const myRevenue=mySales.filter(s=>s.status==='Paid').reduce((a,s)=>a+s.amount,0);
+  const mySales=DB.sales.filter(s=>s.staff===ME.name.split(' ')[0] && s.status==='Paid');
+  const myRevenue=mySales.reduce((a,s)=>a+s.amount,0);
+  const today = todayStr(), weekStart = daysAgoStr(7), monthStart = todayStr().slice(0,7)+'-01';
+  const todaySales = mySales.filter(s=>s.date===today);
+  const weekSales = mySales.filter(s=>s.date>=weekStart);
+  const monthSales = mySales.filter(s=>s.date>=monthStart);
+  const monthLabel = new Date().toLocaleDateString('en-US',{month:'short'});
   document.getElementById('body').innerHTML = `
   <div style="background:var(--ink2);border:1px solid var(--border2);border-radius:14px;padding:22px;margin-bottom:18px;display:flex;align-items:center;gap:18px">
     <div style="width:56px;height:56px;border-radius:50%;background:var(--grad);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:1.1rem;color:#000;border:3px solid rgba(240,180,41,.3);overflow:hidden">${ME.avatarUrl?`<img src="${ME.avatarUrl}" alt="" style="width:100%;height:100%;object-fit:cover">`:ME.initials}</div>
@@ -2915,20 +2930,32 @@ R.profile = ()=>{
     </div>
     <div style="text-align:right">
       <div style="font-size:1.8rem;font-weight:900;color:var(--gold)">${curSym()}${myRevenue.toLocaleString()}</div>
-      <div style="font-size:.68rem;color:var(--muted2);text-transform:uppercase;letter-spacing:.5px">My Revenue (Jul)</div>
+      <div style="font-size:.68rem;color:var(--muted2);text-transform:uppercase;letter-spacing:.5px">My Revenue (All Time)</div>
     </div>
+  </div>
+  <div class="kpi-row" style="margin-bottom:18px">
+    <div class="kpi"><div class="kpi-val c-gold">${curSym()}${todaySales.reduce((a,s)=>a+s.amount,0).toLocaleString()}</div><div class="kpi-label">My Sales Today (${todaySales.length})</div></div>
+    <div class="kpi"><div class="kpi-val c-gold">${curSym()}${weekSales.reduce((a,s)=>a+s.amount,0).toLocaleString()}</div><div class="kpi-label">My Sales This Week (${weekSales.length})</div></div>
+    <div class="kpi"><div class="kpi-val c-gold">${curSym()}${monthSales.reduce((a,s)=>a+s.amount,0).toLocaleString()}</div><div class="kpi-label">My Sales This Month (${monthSales.length})</div></div>
   </div>
   <div class="g2">
     <div class="panel">
-      <div class="panel-head"><h3>My Sales This Month</h3></div>
+      <div class="panel-head"><h3>My Sales This Month (${monthLabel})</h3></div>
       <div class="panel-body flush">
-        ${mySales.length?`<table class="tbl"><thead><tr><th>Customer</th><th>Product</th><th>Amount</th><th>Status</th></tr></thead>
-        <tbody>${mySales.map(s=>`<tr><td style="font-weight:600">${s.customer}</td><td class="c-muted">${s.product}</td><td class="c-gold" style="font-weight:700">${curSym()}${s.amount.toLocaleString()}</td><td>${s.status==='Paid'?'<span class="bdg bdg-green">Paid</span>':'<span class="bdg bdg-amber">Pending</span>'}</td></tr>`).join('')}</tbody></table>`
-        :'<div class="empty"><div class="empty-icon">💰</div><h3>No sales yet</h3><p>Record your first sale to see it here.</p></div>'}
+        ${monthSales.length?`<table class="tbl"><thead><tr><th>Customer</th><th>Product</th><th>Amount</th><th>Status</th></tr></thead>
+        <tbody>${monthSales.map(s=>`<tr><td style="font-weight:600">${s.customer}</td><td class="c-muted">${s.product}</td><td class="c-gold" style="font-weight:700">${curSym()}${s.amount.toLocaleString()}</td><td>${s.status==='Paid'?'<span class="bdg bdg-green">Paid</span>':'<span class="bdg bdg-amber">Pending</span>'}</td></tr>`).join('')}</tbody></table>`
+        :'<div class="empty"><div class="empty-icon">💰</div><h3>No sales yet this month</h3><p>Record your first sale to see it here.</p></div>'}
       </div>
     </div>
     <div>
       ${ME.role==='owner'?`<div class="panel" style="margin-bottom:18px">
+        <div class="panel-head"><h3>🏢 Business Name</h3></div>
+        <div class="panel-body">
+          <div class="field"><input id="biz-name-input" value="${DB.business.name.replace(/"/g,'&quot;')}" placeholder="Your business name"></div>
+          <button class="btn btn-gold btn-sm" onclick="if(this.disabled)return;this.disabled=true;saveBusinessName().finally(()=>this.disabled=false)">Save Name</button>
+        </div>
+      </div>
+      <div class="panel" style="margin-bottom:18px">
         <div class="panel-head"><h3>🌍 Country & Currency</h3></div>
         <div class="panel-body">
           <p style="color:var(--muted2);font-size:.78rem;margin-bottom:12px">Picked the wrong country at signup? Change it here — SamDlight OS supports all 54 African countries and their currencies. This doesn't convert your existing figures, it just changes the symbol shown (e.g. if you recorded ₦50,000 and switch to Kenya, it becomes KSh 50,000 — the number stays, only the currency label changes).</p>
@@ -3068,7 +3095,7 @@ R.team = ()=>{
   <div class="g2" style="margin-bottom:18px">
     <div class="panel">
       <div class="panel-head"><h3>👥 Your Team (${DB.users.length})</h3>
-        <button class="btn btn-gold btn-sm" onclick="openAddStaff()" ${seatsUsed>=DB.business.staffLimit?'disabled':''}>+ Add Staff</button>
+        <button class="btn btn-gold btn-sm" onclick="openAddStaff()">+ Add Staff</button>
       </div>
       <div class="panel-body flush">
         <table class="tbl"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr></thead>
@@ -3129,6 +3156,11 @@ async function cancelPendingInvite(id){
   R.team(); toast('Invite cancelled');
 }
 function openAddStaff(){
+  const seatsUsed = DB.users.length + DB.pending.length;
+  if(seatsUsed >= DB.business.staffLimit){
+    toast(`You've reached your ${DB.business.plan} plan's staff limit (${DB.business.staffLimit} seat${DB.business.staffLimit===1?'':'s'}). Upgrade your plan to invite more staff.`, 'warn');
+    return;
+  }
   openModal(`<h2>🧑‍🤝‍🧑 Add Staff Member</h2>
   <p style="color:var(--muted2);font-size:.82rem;margin-bottom:14px">They'll get access once they sign up on the "Join Team" tab using your invite code (${DB.business.inviteCode}) and this same email.</p>
   <div class="form-grid">
