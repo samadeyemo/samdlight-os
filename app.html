@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SamDlight OS — Growth Engine</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0B0F17">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SamDlight">
+<link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="app.css">
@@ -516,6 +523,12 @@ function exportFinancials(){
   downloadXLSX('profit-and-cashflow.xlsx', rows, ['month','revenue','cogs','gross_profit','operating_expenses','net_profit','cash_in','cash_out','net_cash_flow'], 'Profit & Cash Flow');
   logActivity('Exported profit & cash flow data as Excel');
 }
+function greeting(){
+  const h = new Date().getHours();
+  if(h < 12) return 'Good morning';
+  if(h < 17) return 'Good afternoon';
+  return 'Good evening';
+}
 function myAvatarUrl(){
   // Personal profile picture first, then the business logo as a sensible
   // default, then initials.
@@ -622,6 +635,41 @@ function updateOfflineIndicator(){
     el.style.display = 'none';
   }
 }
+// ══════════════════════════════════════════
+//  INSTALLABLE APP (PWA)
+//  Registers the service worker so SamDlight OS opens and works with no
+//  internet, and surfaces an "Install app" button when the browser says
+//  the app is installable — giving the "Open in app" experience.
+// ══════════════════════════════════════════
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('/sw.js')
+      .catch(err => console.warn('Service worker registration failed:', err));
+  });
+}
+let SD_INSTALL_PROMPT = null;
+window.addEventListener('beforeinstallprompt', (e)=>{
+  e.preventDefault();
+  SD_INSTALL_PROMPT = e;
+  const btn = document.getElementById('install-app-btn');
+  if(btn) btn.style.display = 'inline-flex';
+});
+async function installApp(){
+  if(!SD_INSTALL_PROMPT){
+    toast('To install: open your browser menu and choose "Add to Home screen"','warn');
+    return;
+  }
+  SD_INSTALL_PROMPT.prompt();
+  const { outcome } = await SD_INSTALL_PROMPT.userChoice;
+  if(outcome === 'accepted') toast('SamDlight OS installed — look for it on your home screen');
+  SD_INSTALL_PROMPT = null;
+  const btn = document.getElementById('install-app-btn');
+  if(btn) btn.style.display = 'none';
+}
+window.addEventListener('appinstalled', ()=>{
+  const btn = document.getElementById('install-app-btn');
+  if(btn) btn.style.display = 'none';
+});
 window.addEventListener('online', ()=>{ updateOfflineIndicator(); syncOfflineQueue(); toast('Back online — syncing your data'); });
 window.addEventListener('offline', ()=>{ updateOfflineIndicator(); toast("You're offline — new sales and expenses will save on this device and sync automatically", 'warn'); });
 setInterval(()=>{ if(navigator.onLine) syncOfflineQueue(); }, 30000);
@@ -1582,7 +1630,7 @@ function go(page, el){
   const t = PAGES[page]||{ h:page, sub:'' };
   document.getElementById('ph').textContent = t.h;
   document.getElementById('ps').textContent = page==='growth'
-    ? `${todayLong()} · Good morning, ${ME.name.split(' ')[0]} 👋`
+    ? `${todayLong()} · ${greeting()}, ${ME.name.split(' ')[0]} 👋`
     : t.sub;
   closeSidebar();
 
@@ -1803,7 +1851,7 @@ R.growth = ()=>{
   </div>`).join('')}
   <!-- MORNING CARD -->
   <div class="morning-card">
-    <div class="morning-greeting">Good Morning</div>
+    <div class="morning-greeting">${greeting()}</div>
     <div class="morning-title">What should you do today, <em>${ME.name.split(' ')[0]}</em>?</div>
     <div class="morning-meta">${todayLong()} · SamDlight OS has analysed your business and found ${recos.length} actions that will grow your revenue.</div>
     <div class="morning-stats">
@@ -2279,11 +2327,24 @@ function openAddCustomer(){
 async function saveCustomer(){
   const name=v('c-name'); if(!name){toast('Name required','warn');return;}
   if(!checkLimit('customers')) return;
-  const { error } = await sb.from('customers').insert({
+  const payload = {
     business_id: DB.business.id, name, phone: v('c-phone')||'—', email: v('c-email')||'—',
     total_spent:0, visits:0, segment:'New', status:'Active'
-  });
-  if(error){ toast(error.message,'warn'); return; }
+  };
+  if(!navigator.onLine){
+    queueOfflineWrite('customers', payload);
+    closeModal();
+    toast(`Offline — "${name}" saved on this device, will sync automatically`, 'warn');
+    return;
+  }
+  const { error } = await sb.from('customers').insert(payload);
+  if(error){
+    if(error.code){ toast(error.message.replace(/^.*?:\s*/,''),'warn'); return; }
+    queueOfflineWrite('customers', payload);
+    closeModal();
+    toast('Could not reach the server — customer saved locally, will retry', 'warn');
+    return;
+  }
   await logActivity(`Added new customer: ${name}`);
   await refreshAllData();
   closeModal(); R.customers(); toast('Customer added!');
@@ -2446,12 +2507,25 @@ async function saveProduct(){
   const name=v('p-name'); if(!name){toast('Name required','warn');return;}
   if(!checkLimit('products')) return;
   const cat = v('p-cat')==='Other' ? (v('p-cat-other')||'Other') : v('p-cat');
-  const { error } = await sb.from('products').insert({
+  const payload = {
     business_id: DB.business.id, sku: v('p-sku')||'SKU-NEW', name, cat,
     price:+v('p-price')||0, cost:+v('p-cost')||0,
     stock:+v('p-stock')||0, reorder:+v('p-reorder')||5, sold:0, unit:'unit'
-  });
-  if(error){ toast(error.message,'warn'); return; }
+  };
+  if(!navigator.onLine){
+    queueOfflineWrite('products', payload);
+    closeModal();
+    toast(`Offline — "${name}" saved on this device, will sync automatically`, 'warn');
+    return;
+  }
+  const { error } = await sb.from('products').insert(payload);
+  if(error){
+    if(error.code){ toast(error.message.replace(/^.*?:\s*/,''),'warn'); return; }
+    queueOfflineWrite('products', payload);
+    closeModal();
+    toast('Could not reach the server — product saved locally, will retry', 'warn');
+    return;
+  }
   await logActivity(`Added new product: ${name}`);
   await refreshAllData();
   closeModal(); R.inventory(); toast('Product added!');
@@ -2945,14 +3019,31 @@ function profileRangeDates(){
   }
 }
 function setProfileRange(key){
-  PROFILE_RANGE.key = key;
   if(key === 'custom'){
-    const from = prompt('Start date (YYYY-MM-DD):', PROFILE_RANGE.from || todayStr());
-    if(!from) { PROFILE_RANGE.key='this_month'; R.profile(); return; }
-    const to = prompt('End date (YYYY-MM-DD):', PROFILE_RANGE.to || todayStr());
-    if(!to) { PROFILE_RANGE.key='this_month'; R.profile(); return; }
-    PROFILE_RANGE.from = from; PROFILE_RANGE.to = to;
+    // Real date inputs (native calendar picker on every device) instead of
+    // a text prompt — no typing YYYY-MM-DD by hand.
+    openModal(`<h2>📅 Custom Date Range</h2>
+    <div class="form-grid">
+      <div class="field"><label>From</label><input type="date" id="cr-from" value="${PROFILE_RANGE.from||todayStr()}" max="${todayStr()}"></div>
+      <div class="field"><label>To</label><input type="date" id="cr-to" value="${PROFILE_RANGE.to||todayStr()}" max="${todayStr()}"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal(); R.profile();">Cancel</button>
+      <button class="btn btn-gold" onclick="applyCustomRange()">Apply Range</button>
+    </div>`);
+    return;
   }
+  PROFILE_RANGE.key = key;
+  R.profile();
+}
+function applyCustomRange(){
+  const from = v('cr-from'), to = v('cr-to');
+  if(!from || !to){ toast('Pick both a start and end date','warn'); return; }
+  if(from > to){ toast('The start date must be before the end date','warn'); return; }
+  PROFILE_RANGE.key = 'custom';
+  PROFILE_RANGE.from = from;
+  PROFILE_RANGE.to = to;
+  closeModal();
   R.profile();
 }
 R.profile = ()=>{
@@ -3017,6 +3108,14 @@ R.profile = ()=>{
           </div>
         </div>
       </div>`:''}
+      <div class="panel" style="margin-bottom:18px">
+        <div class="panel-head"><h3>📱 Install App</h3></div>
+        <div class="panel-body">
+          <p style="color:var(--muted2);font-size:.8rem;margin-bottom:14px">Install SamDlight OS on your phone or computer — it opens like a normal app, works offline, and anything you record while offline syncs automatically when you're back online.</p>
+          <button class="btn btn-gold btn-sm" id="install-app-btn" style="display:none" onclick="installApp()">📲 Install SamDlight OS</button>
+          <p id="install-hint" style="color:var(--muted2);font-size:.74rem">On Android/Chrome: browser menu → "Add to Home screen". On iPhone/Safari: Share → "Add to Home Screen".</p>
+        </div>
+      </div>
       <div class="panel" style="margin-bottom:18px">
         <div class="panel-head"><h3>⬇️ Download Your Data</h3></div>
         <div class="panel-body">
