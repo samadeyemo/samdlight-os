@@ -273,6 +273,7 @@
 <div class="toast" id="toast-el"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://js.paystack.co/v1/inline.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
@@ -461,42 +462,35 @@ function curSym(){
   // £) conventionally sit flush against the number, so only pad the former.
   return sym.length > 1 ? sym + ' ' : sym;
 }
-// Generic CSV export — builds the file entirely client-side from data
-// already loaded in DB, so exporting never depends on any extra request.
-function downloadCSV(filename, rows, headers){
-  const escape = v => {
-    if(v===null||v===undefined) return '';
-    const s = String(v);
-    return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
-  };
-  const lines = [headers.map(escape).join(',')];
-  rows.forEach(row => lines.push(headers.map(h => escape(row[h])).join(',')));
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+// Real Excel (.xlsx) export via SheetJS — not CSV-renamed-as-Excel, an
+// actual spreadsheet file with real columns, opens natively in Excel/Sheets.
+function downloadXLSX(filename, rows, headers, sheetName){
+  const aoa = [headers, ...rows.map(row => headers.map(h => row[h] ?? ''))];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = headers.map(h => ({ wch: Math.max(h.length + 2, 14) }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName || 'Sheet1');
+  XLSX.writeFile(wb, filename);
 }
 function exportSales(){
-  downloadCSV('sales.csv', DB.sales.map(s=>({date:s.date, customer:s.customer, product:s.product, amount:s.amount, method:s.method, status:s.status, staff:s.staff})),
-    ['date','customer','product','amount','method','status','staff']);
-  logActivity('Exported sales data as CSV');
+  downloadXLSX('sales.xlsx', DB.sales.map(s=>({date:s.date, customer:s.customer, product:s.product, amount:s.amount, method:s.method, status:s.status, staff:s.staff})),
+    ['date','customer','product','amount','method','status','staff'], 'Sales');
+  logActivity('Exported sales data as Excel');
 }
 function exportCustomers(){
-  downloadCSV('customers.csv', DB.customers.map(c=>({name:c.name, phone:c.phone, email:c.email, total_spent:c.totalSpent, visits:c.visits, status:c.status, last_buy:c.lastBuy})),
-    ['name','phone','email','total_spent','visits','status','last_buy']);
-  logActivity('Exported customer data as CSV');
+  downloadXLSX('customers.xlsx', DB.customers.map(c=>({name:c.name, phone:c.phone, email:c.email, total_spent:c.totalSpent, visits:c.visits, status:c.status, last_buy:c.lastBuy})),
+    ['name','phone','email','total_spent','visits','status','last_buy'], 'Customers');
+  logActivity('Exported customer data as Excel');
 }
 function exportExpenses(){
-  downloadCSV('expenses.csv', DB.expenses.map(e=>({date:e.date, name:e.name, category:e.category, amount:e.amount, payment_method:e.method})),
-    ['date','name','category','amount','payment_method']);
-  logActivity('Exported expenses data as CSV');
+  downloadXLSX('expenses.xlsx', DB.expenses.map(e=>({date:e.date, name:e.name, category:e.category, amount:e.amount, payment_method:e.method})),
+    ['date','name','category','amount','payment_method'], 'Expenses');
+  logActivity('Exported expenses data as Excel');
 }
 function exportProducts(){
-  downloadCSV('products.csv', DB.products.map(p=>({sku:p.sku, name:p.name, category:p.cat, price:p.price, cost:p.cost, stock:p.stock, sold:p.sold})),
-    ['sku','name','category','price','cost','stock','sold']);
-  logActivity('Exported product data as CSV');
+  downloadXLSX('products.xlsx', DB.products.map(p=>({sku:p.sku, name:p.name, category:p.cat, price:p.price, cost:p.cost, stock:p.stock, sold:p.sold})),
+    ['sku','name','category','price','cost','stock','sold'], 'Products');
+  logActivity('Exported product data as Excel');
 }
 function exportFinancials(){
   // Month-by-month Revenue / COGS / Gross Profit / Expenses / Net Profit /
@@ -519,13 +513,23 @@ function exportFinancials(){
     const cashOut = DB.expenses.filter(e=>e.date>=from && e.date<=to).reduce((a,e)=>a+e.amount,0);
     return { month:m, revenue:f.revenue, cogs:f.cogs, gross_profit:f.grossProfit, operating_expenses:f.totalExpenses, net_profit:f.netProfit, cash_in:cashIn, cash_out:cashOut, net_cash_flow:cashIn-cashOut };
   });
-  downloadCSV('profit-and-cashflow.csv', rows, ['month','revenue','cogs','gross_profit','operating_expenses','net_profit','cash_in','cash_out','net_cash_flow']);
-  logActivity('Exported profit & cash flow data as CSV');
+  downloadXLSX('profit-and-cashflow.xlsx', rows, ['month','revenue','cogs','gross_profit','operating_expenses','net_profit','cash_in','cash_out','net_cash_flow'], 'Profit & Cash Flow');
+  logActivity('Exported profit & cash flow data as Excel');
+}
+function myAvatarUrl(){
+  // Personal profile picture first, then the business logo as a sensible
+  // default, then initials.
+  return ME.avatarUrl || DB.business?.logoUrl || null;
 }
 function renderTopbarAvatar(){
   const el = document.getElementById('tav');
   if(!el) return;
-  el.innerHTML = ME.avatarUrl ? `<img src="${ME.avatarUrl}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">` : ME.initials;
+  // Falls back to the business logo when the user hasn't set their own
+  // profile picture, so uploading a logo visibly "shows up" immediately
+  // without needing the separate opt-in step — that stays available for
+  // anyone who wants their own personal photo instead.
+  const img = myAvatarUrl();
+  el.innerHTML = img ? `<img src="${img}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">` : ME.initials;
 }
 // Different plan currencies are never summed into one figure (that would
 // silently mix e.g. NGN and GHS) — shown as a per-currency breakdown instead.
@@ -1146,6 +1150,12 @@ async function loadSession(){
     return;
   }
 
+  if(profile.status === 'suspended'){
+    await sb.auth.signOut();
+    toast('Your access to this business has been restricted. Contact your business owner.', 'warn');
+    return;
+  }
+
   const { data: business } = await sb.from('businesses').select('*').eq('id', profile.business_id).single();
 
   ME = { id:profile.id, name:profile.name, email:profile.email, role:profile.role, initials:profile.initials,
@@ -1229,7 +1239,7 @@ async function refreshAllData(){
   DB.sales     = (sales||[]).map(s=>({ id:s.id, date:s.date, customer:s.customer, product:s.product, productId:s.product_id, unitCost:+(s.unit_cost||0), qty:s.qty, amount:+s.amount, method:s.method, status:s.status, staff:s.staff }));
   DB.customers = (customers||[]).map(c=>({ id:c.id, name:c.name, phone:c.phone, email:c.email, lastBuy:c.last_buy||'—', totalSpent:+c.total_spent, visits:c.visits, segment:c.segment, status:c.status }));
   DB.products  = (products||[]).map(p=>({ id:p.id, sku:p.sku, name:p.name, cat:p.cat, price:+p.price, cost:+p.cost, stock:p.stock, reorder:p.reorder, sold:p.sold, unit:p.unit }));
-  DB.users     = (team||[]).map(u=>({ id:u.id, email:u.email, role:u.role, name:u.name, initials:u.initials }));
+  DB.users     = (team||[]).map(u=>({ id:u.id, email:u.email, role:u.role, name:u.name, initials:u.initials, status:u.status||'active' }));
   DB.pending   = (pending||[]).map(p=>({ id:p.id, email:p.email, name:p.name, role:p.role }));
   DB.activity  = (activity||[]).map(a=>({ id:a.id, staffName:a.staff_name, action:a.action, time:a.created_at }));
   DB.attendance= (attend||[]).map(a=>({ id:a.id, staffId:a.staff_id, staffName:a.staff_name, date:a.work_date, clockIn:a.clock_in, clockOut:a.clock_out }));
@@ -1416,7 +1426,7 @@ function buildSB(){
       <div class="sb-wordmark">SamDlight <em>OS</em></div>
     </div>
     <div class="sb-user" style="display:flex;align-items:center;gap:10px">
-      <div style="width:34px;height:34px;border-radius:50%;background:var(--grad);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:.72rem;color:#000;overflow:hidden;flex-shrink:0">${ME.avatarUrl?`<img src="${ME.avatarUrl}" alt="" style="width:100%;height:100%;object-fit:cover">`:ME.initials}</div>
+      <div style="width:34px;height:34px;border-radius:50%;background:var(--grad);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:.72rem;color:#000;overflow:hidden;flex-shrink:0">${myAvatarUrl()?`<img src="${myAvatarUrl()}" alt="" style="width:100%;height:100%;object-fit:cover">`:ME.initials}</div>
       <div>
         <div class="sb-user-name">${ME.name.split(' ')[0]}</div>
         <div class="sb-user-role">🌐 Platform Admin</div>
@@ -1478,7 +1488,7 @@ function buildSB(){
     <div class="sb-wordmark">SamDlight <em>OS</em></div>
   </div>
   <div class="sb-user" style="display:flex;align-items:flex-start;gap:10px">
-    <div style="width:34px;height:34px;border-radius:50%;background:var(--grad);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:.72rem;color:#000;overflow:hidden;flex-shrink:0;margin-top:1px">${ME.avatarUrl?`<img src="${ME.avatarUrl}" alt="" style="width:100%;height:100%;object-fit:cover">`:ME.initials}</div>
+    <div style="width:34px;height:34px;border-radius:50%;background:var(--grad);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:.72rem;color:#000;overflow:hidden;flex-shrink:0;margin-top:1px">${myAvatarUrl()?`<img src="${myAvatarUrl()}" alt="" style="width:100%;height:100%;object-fit:cover">`:ME.initials}</div>
     <div style="flex:1;min-width:0">
       <div class="sb-user-name">${ME.name.split(' ')[0]}</div>
       <div class="sb-user-role">${perms.label} · ${DB.business.name.split(' ')[0]}</div>
@@ -2582,7 +2592,7 @@ R.cashflow = ()=>{
     </div>
   </div>
   <div class="panel" style="margin:18px 0">
-    <div class="panel-head"><h3>📊 Profit & Loss — This Month</h3><button class="btn btn-ghost btn-sm" onclick="exportFinancials()">⬇️ Export CSV</button></div>
+    <div class="panel-head"><h3>📊 Profit & Loss — This Month</h3><button class="btn btn-ghost btn-sm" onclick="exportFinancials()">⬇️ Export Excel</button></div>
     <div class="panel-body">
       <div style="display:flex;flex-direction:column;gap:0">
         <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
@@ -2912,17 +2922,51 @@ R.aiadvisor = ()=>{
 };
 
 /* ── PROFILE ── */
+// Kolomoni-style date range filter — one selector drives both the summary
+// and the table below it, instead of three fixed tiles.
+let PROFILE_RANGE = { key:'this_month', from:null, to:null };
+function profileRangeDates(){
+  const today = todayStr();
+  const d = new Date();
+  switch(PROFILE_RANGE.key){
+    case 'today':      return { from: today, to: today, label:'Today' };
+    case 'yesterday':  return { from: daysAgoStr(1), to: daysAgoStr(1), label:'Yesterday' };
+    case 'last_week':  return { from: daysAgoStr(7), to: today, label:'Last 7 Days' };
+    case 'this_month': return { from: today.slice(0,7)+'-01', to: today, label:'This Month' };
+    case 'last_month': {
+      const lm = new Date(d.getFullYear(), d.getMonth()-1, 1);
+      const monthStr = lm.getFullYear()+'-'+String(lm.getMonth()+1).padStart(2,'0');
+      const lastDay = new Date(d.getFullYear(), d.getMonth(), 0).getDate();
+      return { from: monthStr+'-01', to: monthStr+'-'+lastDay, label:'Last Month' };
+    }
+    case 'custom':     return { from: PROFILE_RANGE.from||today, to: PROFILE_RANGE.to||today, label:'Custom Range' };
+    case 'all':        return { from: '0000-01-01', to: '9999-12-31', label:'All Time' };
+    default:           return { from: today.slice(0,7)+'-01', to: today, label:'This Month' };
+  }
+}
+function setProfileRange(key){
+  PROFILE_RANGE.key = key;
+  if(key === 'custom'){
+    const from = prompt('Start date (YYYY-MM-DD):', PROFILE_RANGE.from || todayStr());
+    if(!from) { PROFILE_RANGE.key='this_month'; R.profile(); return; }
+    const to = prompt('End date (YYYY-MM-DD):', PROFILE_RANGE.to || todayStr());
+    if(!to) { PROFILE_RANGE.key='this_month'; R.profile(); return; }
+    PROFILE_RANGE.from = from; PROFILE_RANGE.to = to;
+  }
+  R.profile();
+}
 R.profile = ()=>{
-  const mySales=DB.sales.filter(s=>s.staff===ME.name.split(' ')[0] && s.status==='Paid');
-  const myRevenue=mySales.reduce((a,s)=>a+s.amount,0);
-  const today = todayStr(), weekStart = daysAgoStr(7), monthStart = todayStr().slice(0,7)+'-01';
-  const todaySales = mySales.filter(s=>s.date===today);
-  const weekSales = mySales.filter(s=>s.date>=weekStart);
-  const monthSales = mySales.filter(s=>s.date>=monthStart);
-  const monthLabel = new Date().toLocaleDateString('en-US',{month:'short'});
+  const myPaid = DB.sales.filter(s=>s.staff===ME.name.split(' ')[0] && s.status==='Paid');
+  const myRevenue = myPaid.reduce((a,s)=>a+s.amount,0);
+  const range = profileRangeDates();
+  const rangeSales = DB.sales.filter(s=>s.staff===ME.name.split(' ')[0] && s.date>=range.from && s.date<=range.to);
+  const rangePaid = rangeSales.filter(s=>s.status==='Paid');
+  const rangeTotal = rangePaid.reduce((a,s)=>a+s.amount,0);
+  const rangePending = rangeSales.filter(s=>s.status!=='Paid').reduce((a,s)=>a+s.amount,0);
+  const opts = [['today','Today'],['yesterday','Yesterday'],['last_week','Last Week'],['this_month','This Month'],['last_month','Last Month'],['custom','Custom'],['all','All Time']];
   document.getElementById('body').innerHTML = `
   <div style="background:var(--ink2);border:1px solid var(--border2);border-radius:14px;padding:22px;margin-bottom:18px;display:flex;align-items:center;gap:18px">
-    <div style="width:56px;height:56px;border-radius:50%;background:var(--grad);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:1.1rem;color:#000;border:3px solid rgba(240,180,41,.3);overflow:hidden">${ME.avatarUrl?`<img src="${ME.avatarUrl}" alt="" style="width:100%;height:100%;object-fit:cover">`:ME.initials}</div>
+    <div style="width:56px;height:56px;border-radius:50%;background:var(--grad);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:1.1rem;color:#000;border:3px solid rgba(240,180,41,.3);overflow:hidden">${myAvatarUrl()?`<img src="${myAvatarUrl()}" alt="" style="width:100%;height:100%;object-fit:cover">`:ME.initials}</div>
     <div style="flex:1">
       <div style="font-size:1.1rem;font-weight:900;margin-bottom:3px">${ME.name}</div>
       <div style="color:var(--muted2);font-size:.82rem;margin-bottom:8px">${ROLES[ME.role].label} · ${DB.business.name}</div>
@@ -2933,18 +2977,25 @@ R.profile = ()=>{
       <div style="font-size:.68rem;color:var(--muted2);text-transform:uppercase;letter-spacing:.5px">My Revenue (All Time)</div>
     </div>
   </div>
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+    <label style="font-size:.78rem;color:var(--muted2)">Showing:</label>
+    <select onchange="setProfileRange(this.value)" style="background:var(--ink);border:1px solid var(--border);color:var(--txt);padding:7px 11px;border-radius:8px;font-family:inherit;font-size:.82rem">
+      ${opts.map(([k,l])=>`<option value="${k}" ${PROFILE_RANGE.key===k?'selected':''}>${l}</option>`).join('')}
+    </select>
+    <span style="font-size:.74rem;color:var(--muted2)">${range.from} → ${range.to}</span>
+  </div>
   <div class="kpi-row" style="margin-bottom:18px">
-    <div class="kpi"><div class="kpi-val c-gold">${curSym()}${todaySales.reduce((a,s)=>a+s.amount,0).toLocaleString()}</div><div class="kpi-label">My Sales Today (${todaySales.length})</div></div>
-    <div class="kpi"><div class="kpi-val c-gold">${curSym()}${weekSales.reduce((a,s)=>a+s.amount,0).toLocaleString()}</div><div class="kpi-label">My Sales This Week (${weekSales.length})</div></div>
-    <div class="kpi"><div class="kpi-val c-gold">${curSym()}${monthSales.reduce((a,s)=>a+s.amount,0).toLocaleString()}</div><div class="kpi-label">My Sales This Month (${monthSales.length})</div></div>
+    <div class="kpi"><div class="kpi-val c-gold">${curSym()}${rangeTotal.toLocaleString()}</div><div class="kpi-label">My Sales — ${range.label}</div></div>
+    <div class="kpi"><div class="kpi-val">${rangePaid.length}</div><div class="kpi-label">Transactions</div></div>
+    <div class="kpi"><div class="kpi-val c-amber">${curSym()}${rangePending.toLocaleString()}</div><div class="kpi-label">Pending / Unpaid</div></div>
   </div>
   <div class="g2">
     <div class="panel">
-      <div class="panel-head"><h3>My Sales This Month (${monthLabel})</h3></div>
+      <div class="panel-head"><h3>My Sales — ${range.label}</h3></div>
       <div class="panel-body flush">
-        ${monthSales.length?`<table class="tbl"><thead><tr><th>Customer</th><th>Product</th><th>Amount</th><th>Status</th></tr></thead>
-        <tbody>${monthSales.map(s=>`<tr><td style="font-weight:600">${s.customer}</td><td class="c-muted">${s.product}</td><td class="c-gold" style="font-weight:700">${curSym()}${s.amount.toLocaleString()}</td><td>${s.status==='Paid'?'<span class="bdg bdg-green">Paid</span>':'<span class="bdg bdg-amber">Pending</span>'}</td></tr>`).join('')}</tbody></table>`
-        :'<div class="empty"><div class="empty-icon">💰</div><h3>No sales yet this month</h3><p>Record your first sale to see it here.</p></div>'}
+        ${rangeSales.length?`<table class="tbl"><thead><tr><th>Date</th><th>Customer</th><th>Product</th><th>Amount</th><th>Status</th></tr></thead>
+        <tbody>${rangeSales.map(s=>`<tr><td class="c-muted" style="font-size:.76rem">${s.date}</td><td style="font-weight:600">${s.customer}</td><td class="c-muted">${s.product}</td><td class="c-gold" style="font-weight:700">${curSym()}${s.amount.toLocaleString()}</td><td>${s.status==='Paid'?'<span class="bdg bdg-green">Paid</span>':'<span class="bdg bdg-amber">Pending</span>'}</td></tr>`).join('')}</tbody></table>`
+        :'<div class="empty"><div class="empty-icon">💰</div><h3>No sales in this period</h3><p>Try a different date range, or record a sale.</p></div>'}
       </div>
     </div>
     <div>
@@ -2969,7 +3020,7 @@ R.profile = ()=>{
       <div class="panel" style="margin-bottom:18px">
         <div class="panel-head"><h3>⬇️ Download Your Data</h3></div>
         <div class="panel-body">
-          <p style="color:var(--muted2);font-size:.8rem;margin-bottom:14px">Your business data is yours. Export any of it as a CSV file, anytime — no need to ask us for it.</p>
+          <p style="color:var(--muted2);font-size:.8rem;margin-bottom:14px">Your business data is yours. Export any of it as a real Excel (.xlsx) file, anytime — no need to ask us for it.</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-ghost btn-sm" onclick="exportSales()">📄 Sales (${DB.sales.length})</button>
             <button class="btn btn-ghost btn-sm" onclick="exportCustomers()">📄 Customers (${DB.customers.length})</button>
@@ -3098,12 +3149,16 @@ R.team = ()=>{
         <button class="btn btn-gold btn-sm" onclick="openAddStaff()">+ Add Staff</button>
       </div>
       <div class="panel-body flush">
-        <table class="tbl"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr></thead>
+        <table class="tbl"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead>
         <tbody>${DB.users.map(u=>`<tr><td style="font-weight:600">${u.name}</td><td class="c-muted">${u.email}</td><td><span class="bdg bdg-green">${u.role}</span></td>
-        <td>${(perms.canDelete && u.role!=='owner' && u.id!==ME.id)?`<button class="btn btn-danger btn-sm" onclick="removeStaffMember('${u.id}','${u.name.replace(/'/g,"\\'")}')">Remove</button>`:''}</td></tr>`).join('')}
-        ${DB.pending.map(p=>`<tr><td style="font-weight:600">${p.name}</td><td class="c-muted">${p.email}</td><td><span class="bdg bdg-amber">Invited (${p.role})</span></td>
+        <td>${u.status==='suspended'?'<span class="bdg bdg-red">Restricted</span>':'<span class="bdg bdg-green">Active</span>'}</td>
+        <td style="display:flex;gap:6px">${(perms.canDelete && u.role!=='owner' && u.id!==ME.id)?`
+          <button class="btn btn-ghost btn-sm" onclick="toggleStaffStatus('${u.id}','${u.name.replace(/'/g,"\\'")}','${u.status==='suspended'?'active':'suspended'}')">${u.status==='suspended'?'Restore Access':'Restrict Login'}</button>
+          <button class="btn btn-danger btn-sm" onclick="removeStaffMember('${u.id}','${u.name.replace(/'/g,"\\'")}')">Remove</button>`:''}</td></tr>`).join('')}
+        ${DB.pending.map(p=>`<tr><td style="font-weight:600">${p.name}</td><td class="c-muted">${p.email}</td><td><span class="bdg bdg-amber">Invited (${p.role})</span></td><td class="c-muted">—</td>
         <td>${perms.canDelete?`<button class="btn btn-ghost btn-sm" onclick="cancelPendingInvite('${p.id}')">Cancel Invite</button>`:''}</td></tr>`).join('')}
         </tbody></table>
+        <p style="padding:10px 16px;color:var(--muted2);font-size:.72rem">"Restrict Login" blocks a staff member from signing in without deleting their account or history — use "Remove" instead for someone who's fully left the business.</p>
         <div style="padding:12px 16px;color:var(--muted2);font-size:.78rem">
           ${seatsUsed} of ${DB.business.staffLimit} seats used on the <b style="color:var(--gold)">${DB.business.plan}</b> plan.
           ${seatsUsed>=DB.business.staffLimit?' Upgrade your plan to add more staff.':''}
@@ -3140,6 +3195,14 @@ R.team = ()=>{
   </div>`}`;
 };
 
+async function toggleStaffStatus(id, name, newStatus){
+  const verb = newStatus==='suspended' ? 'restrict' : 'restore';
+  if(!confirm(`Are you sure you want to ${verb} login access for ${name}?`)) return;
+  const { error } = await sb.rpc('set_staff_status', { target_profile_id: id, new_status: newStatus });
+  if(error){ toast(error.message.replace(/^.*?:\s*/,''),'warn'); return; }
+  await refreshAllData();
+  R.team(); toast(`${name}'s access ${newStatus==='suspended'?'restricted':'restored'}`);
+}
 async function removeStaffMember(id, name){
   if(!confirm(`Remove ${name} from your team? They'll lose access to this business immediately.`)) return;
   const { error } = await sb.rpc('remove_staff_member', { target_profile_id: id });
@@ -3466,12 +3529,20 @@ R.reports = ()=>{
         <td class="c-green" style="font-weight:700">${curSym()}${(+r.net_profit).toLocaleString()}</td>
         <td class="c-muted">${r.profit_margin}%</td>
         <td class="c-muted" style="font-size:.72rem">${new Date(r.created_at).toLocaleDateString()}</td>
-        <td><button class="btn btn-ghost btn-sm" onclick="viewReport('${r.id}')">View</button></td>
+        <td><button class="btn btn-ghost btn-sm" onclick="viewReport('${r.id}')">View</button> ${ME.role==='owner'?`<button class="btn btn-danger btn-sm" onclick="deleteReport('${r.id}')">Del</button>`:''}</td>
       </tr>`).join('')}</tbody></table>`
       :'<div class="empty"><div class="empty-icon">📄</div><h3>No reports generated yet</h3></div>'}
     </div>
   </div>`;
 };
+async function deleteReport(id){
+  if(!confirm('Delete this verified report? This cannot be undone, and any funding application referencing it may be affected.')) return;
+  const { error } = await sb.from('verified_reports').delete().eq('id', id);
+  if(error){ toast(error.message.replace(/^.*?:\s*/,''),'warn'); return; }
+  await logActivity('Deleted a verified report');
+  await refreshAllData();
+  R.reports(); toast('Report deleted');
+}
 async function generateReport(){
   const from = v('vr-from'), to = v('vr-to');
   if(!from||!to){ toast('Pick a date range','warn'); return; }
