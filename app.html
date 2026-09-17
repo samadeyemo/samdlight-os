@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
 <title>SamDlight OS — Growth Engine</title>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0B0F17">
@@ -16,6 +19,19 @@
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
+
+<!-- ══ INSTALL BANNER (PWA) — works on desktop Chrome/Edge, Android Chrome,
+     and iOS/other browsers via manual instructions, since beforeinstallprompt
+     never fires on those. ══ -->
+<div id="sd-install-banner" class="sd-install-banner" style="display:none">
+  <img src="/icon-192.png" alt="" class="sd-install-icon">
+  <div class="sd-install-text">
+    <div class="sd-install-title">Install SamDlight OS</div>
+    <div class="sd-install-sub" id="sd-install-sub">Faster access, offline support and a home-screen app.</div>
+  </div>
+  <button class="sd-install-btn" id="sd-install-btn" onclick="installApp()">Install</button>
+  <button class="sd-install-close" onclick="dismissInstallBanner()" aria-label="Dismiss">✕</button>
+</div>
 
 <!-- ══ LOGIN / SIGNUP ══ -->
 <div class="screen on" id="s-login">
@@ -648,28 +664,76 @@ if('serviceWorker' in navigator){
   });
 }
 let SD_INSTALL_PROMPT = null;
+const SD_IS_STANDALONE = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+const SD_UA = navigator.userAgent || '';
+const SD_IS_IOS = /iPad|iPhone|iPod/.test(SD_UA) || (SD_UA.includes('Macintosh') && navigator.maxTouchPoints > 1);
+const SD_IS_ANDROID = /Android/.test(SD_UA);
+
+function sdInstallDismissedRecently(){
+  const dismissedAt = parseInt(localStorage.getItem('sd_install_dismissed_at') || '0', 10);
+  return dismissedAt && (Date.now() - dismissedAt) < 7*24*60*60*1000; // re-offer after 7 days
+}
+function dismissInstallBanner(){
+  const el = document.getElementById('sd-install-banner');
+  if(el) el.style.display = 'none';
+  localStorage.setItem('sd_install_dismissed_at', String(Date.now()));
+}
+function showInstallBanner(){
+  if(SD_IS_STANDALONE || sdInstallDismissedRecently()) return;
+  const el = document.getElementById('sd-install-banner');
+  const sub = document.getElementById('sd-install-sub');
+  const btn = document.getElementById('sd-install-btn');
+  if(!el) return;
+  if(SD_IS_IOS){
+    sub.textContent = 'Tap the Share icon, then "Add to Home Screen".';
+    btn.textContent = 'How';
+  } else if(SD_IS_ANDROID && !SD_INSTALL_PROMPT){
+    // Android browser that hasn't fired beforeinstallprompt yet (or doesn't support it)
+    sub.textContent = 'Open your browser menu and choose "Add to Home screen" or "Install app".';
+    btn.textContent = 'How';
+  } else {
+    sub.textContent = 'Faster access, offline support and a home-screen app.';
+    btn.textContent = 'Install';
+  }
+  el.style.display = 'flex';
+}
 window.addEventListener('beforeinstallprompt', (e)=>{
   e.preventDefault();
   SD_INSTALL_PROMPT = e;
   const btn = document.getElementById('install-app-btn');
   if(btn) btn.style.display = 'inline-flex';
+  showInstallBanner();
 });
 async function installApp(){
-  if(!SD_INSTALL_PROMPT){
-    toast('To install: open your browser menu and choose "Add to Home screen"','warn');
+  if(SD_INSTALL_PROMPT){
+    SD_INSTALL_PROMPT.prompt();
+    const { outcome } = await SD_INSTALL_PROMPT.userChoice;
+    if(outcome === 'accepted') toast('SamDlight OS installed — look for it on your home screen');
+    SD_INSTALL_PROMPT = null;
+    const btn = document.getElementById('install-app-btn');
+    if(btn) btn.style.display = 'none';
+    dismissInstallBanner();
     return;
   }
-  SD_INSTALL_PROMPT.prompt();
-  const { outcome } = await SD_INSTALL_PROMPT.userChoice;
-  if(outcome === 'accepted') toast('SamDlight OS installed — look for it on your home screen');
-  SD_INSTALL_PROMPT = null;
-  const btn = document.getElementById('install-app-btn');
-  if(btn) btn.style.display = 'none';
+  if(SD_IS_IOS){
+    toast('Tap the Share icon in Safari, then "Add to Home Screen"','warn');
+    return;
+  }
+  toast('Open your browser menu and choose "Add to Home screen" or "Install app"','warn');
 }
 window.addEventListener('appinstalled', ()=>{
   const btn = document.getElementById('install-app-btn');
   if(btn) btn.style.display = 'none';
+  const banner = document.getElementById('sd-install-banner');
+  if(banner) banner.style.display = 'none';
+  localStorage.removeItem('sd_install_dismissed_at');
 });
+// Show the banner shortly after load for mobile browsers even when
+// beforeinstallprompt never fires (iOS Safari, many Android browsers) —
+// this is what makes "Install" actually visible on mobile, not just desktop.
+if(SD_IS_IOS || SD_IS_ANDROID){
+  window.addEventListener('load', ()=> setTimeout(showInstallBanner, 2500));
+}
 window.addEventListener('online', ()=>{ updateOfflineIndicator(); syncOfflineQueue(); toast('Back online — syncing your data'); });
 window.addEventListener('offline', ()=>{ updateOfflineIndicator(); toast("You're offline — new sales and expenses will save on this device and sync automatically", 'warn'); });
 setInterval(()=>{ if(navigator.onLine) syncOfflineQueue(); }, 30000);

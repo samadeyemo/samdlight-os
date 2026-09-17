@@ -1,4 +1,29 @@
 
+/* ── INSTALL BANNER ── */
+.sd-install-banner{
+  position:fixed; left:12px; right:12px; bottom:12px; z-index:9999;
+  max-width:480px; margin:0 auto;
+  background:var(--card,#111827); border:1px solid var(--border,#1E293B);
+  border-radius:14px; box-shadow:0 10px 30px rgba(0,0,0,.35);
+  padding:12px 12px 12px 14px;
+  display:flex; align-items:center; gap:12px;
+  animation:sdInstallIn .25s ease-out;
+}
+@keyframes sdInstallIn{ from{ transform:translateY(16px); opacity:0 } to{ transform:translateY(0); opacity:1 } }
+.sd-install-icon{ width:40px; height:40px; border-radius:9px; flex-shrink:0; }
+.sd-install-text{ flex:1; min-width:0; }
+.sd-install-title{ font-weight:700; font-size:.88rem; }
+.sd-install-sub{ font-size:.74rem; color:var(--muted2,#94a3b8); margin-top:2px; line-height:1.4; }
+.sd-install-btn{
+  background:var(--gold,#F59E0B); color:#0B0F17; border:none; border-radius:8px;
+  font-weight:700; font-size:.82rem; padding:.5rem .9rem; cursor:pointer; flex-shrink:0;
+}
+.sd-install-close{
+  background:none; border:none; color:var(--muted2,#94a3b8); font-size:.9rem;
+  cursor:pointer; flex-shrink:0; padding:4px;
+}
+@media (min-width:640px){ .sd-install-banner{ left:auto; right:20px; bottom:20px; width:380px; } }
+
 /* ── TOKENS ── */
 :root {
   --ink:      #0B0F17;
