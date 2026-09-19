@@ -11,7 +11,7 @@
 //     business data would be worse than no data, and the app already has
 //     its own offline queue for writes.
 
-const CACHE = 'samdlight-os-v1';
+const CACHE = 'samdlight-os-v2';
 const SHELL = [
   '/app.html',
   '/index.html',
