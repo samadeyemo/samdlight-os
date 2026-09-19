@@ -3299,6 +3299,7 @@ function staffPerformance(){
   }).sort((a,b)=>b.totalSales-a.totalSales);
 }
 R.team = ()=>{
+  const perms = ROLES[ME.role];
   const seatsUsed = DB.users.length + DB.pending.length;
   const perf = staffPerformance();
   document.getElementById('body').innerHTML = `

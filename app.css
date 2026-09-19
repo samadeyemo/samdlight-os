@@ -162,7 +162,7 @@ body {
 /* ══════════════════════════════════════════
    LOGIN SIDE ANIMATIONS — "Intelligence" (left) & "Action" (right)
    Pure CSS, theme-aware (uses the same variables as everything else,
-   so dark/light mode both work automatically). Hidden below 1300px so
+   so dark/light mode both work automatically). Hidden below 1080px so
    they never crowd the actual login card on laptops/tablets/mobile.
    ══════════════════════════════════════════ */
 .sd-side-panel {
@@ -170,7 +170,7 @@ body {
   background: var(--ink2); border: 1px solid var(--border); border-radius: 20px;
   padding: 30px 26px; overflow: hidden; z-index: 2;
 }
-@media (min-width: 1300px) { .sd-side-panel { display: block; } }
+@media (min-width: 1080px) { .sd-side-panel { display: block; } }
 
 .sd-promo { width: 420px; padding: 0; overflow: hidden; border-color: rgba(255,255,255,.08); }
 .sd-promo-photo {
@@ -746,13 +746,13 @@ body {
   .kpi-row, .morning-stats { grid-template-columns: 1fr; }
   .modal { padding: 18px; }
 }
-/* Desktop (≥1300px): true 50/50 split like the reference — promo panel one
+/* Desktop (≥1080px): true 50/50 split like the reference — promo panel one
    side, login card the other, both full height. Below that, mobile/tablet
    shows the login card only; the promo panel is hidden entirely. */
-@media (max-width: 1299px) {
+@media (max-width: 1079px) {
   #s-login { flex-direction: column; flex-wrap: wrap; gap: 24px; padding: 32px 16px; }
 }
-@media (min-width: 1300px) {
+@media (min-width: 1080px) {
   #s-login { padding: 0; gap: 0; align-items: stretch; }
   .sd-promo { width: 50%; flex-shrink: 1; }
   .login-wrap { width: 50%; max-width: none; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #F8FAFC; padding: 60px; }
