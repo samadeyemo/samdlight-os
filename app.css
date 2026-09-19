@@ -469,13 +469,13 @@ body {
 }
 .panel-head h3 { font-size: .85rem; font-weight: 700; }
 .panel-body { padding: 16px; }
-.panel-body.flush { padding: 0; }
+.panel-body.flush { padding: 0; overflow-x: auto; }
 
 .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
 
 /* TABLE */
-.tbl { width: 100%; border-collapse: collapse; font-size: .8rem; }
+.tbl { width: 100%; min-width: 520px; border-collapse: collapse; font-size: .8rem; }
 .tbl th { text-align: left; padding: 9px 13px; font-size: .63rem; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); font-weight: 700; border-bottom: 1px solid var(--border); }
 .tbl td { padding: 10px 13px; border-bottom: 1px solid rgba(30,61,36,.5); vertical-align: middle; }
 .tbl tbody tr:last-child td { border-bottom: none; }

@@ -11,12 +11,13 @@
 //     business data would be worse than no data, and the app already has
 //     its own offline queue for writes.
 
-const CACHE = 'samdlight-os-v1';
+const CACHE = 'samdlight-os-v6';
 const SHELL = [
   '/app.html',
   '/index.html',
   '/icon-192.png',
   '/icon-512.png',
+  '/logo-mark.png',
   '/manifest.json',
   'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js',
   'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'

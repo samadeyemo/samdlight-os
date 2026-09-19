@@ -42,7 +42,7 @@
     <div class="sd-promo-photo">
       <div class="sd-promo-inner">
         <div class="sd-promo-header">
-          <img src="icon-192.png" alt="" class="sd-promo-logo">
+          <img src="logo-mark.png" alt="" class="sd-promo-logo">
           <div>
             <div class="sd-promo-word">SamDlight <em>OS</em></div>
             <div class="sd-promo-tag">AI-Powered SME Business Operating System</div>
@@ -76,7 +76,7 @@
   <div class="login-wrap">
     <div class="login-brand">
       <div class="brand-mark">
-        <div class="brand-icon"><img src="icon-192.png" alt=""></div>
+        <div class="brand-icon"><img src="logo-mark.png" alt=""></div>
         <div class="brand-wordmark">SamDlight <em>OS</em></div>
       </div>
       <div class="login-tagline">Your AI Business Manager · Built for African SMEs</div>
@@ -149,7 +149,7 @@
   <div class="login-wrap">
     <div class="login-brand">
       <div class="brand-mark">
-        <div class="brand-icon"><img src="icon-192.png" alt=""></div>
+        <div class="brand-icon"><img src="logo-mark.png" alt=""></div>
         <div class="brand-wordmark">SamDlight <em>OS</em></div>
       </div>
     </div>
@@ -229,7 +229,7 @@
   <div class="login-glow"></div>
   <div class="login-wrap">
     <div class="login-brand">
-      <div class="brand-mark"><div class="brand-icon"><img src="icon-192.png" alt=""></div><div class="brand-wordmark">SamDlight <em>OS</em></div></div>
+      <div class="brand-mark"><div class="brand-icon"><img src="logo-mark.png" alt=""></div><div class="brand-wordmark">SamDlight <em>OS</em></div></div>
       <div class="login-tagline">Report Verification</div>
     </div>
     <div class="login-card" id="verify-result">
@@ -1529,7 +1529,7 @@ function buildSB(){
   if(inPlatformCtx){
     let html = `
     <div class="sb-brand">
-      <div class="sb-icon-sm"><img src="icon-192.png" alt=""></div>
+      <div class="sb-icon-sm"><img src="logo-mark.png" alt=""></div>
       <div class="sb-wordmark">SamDlight <em>OS</em></div>
     </div>
     <div class="sb-user" style="display:flex;align-items:center;gap:10px">
@@ -1592,7 +1592,7 @@ function buildSB(){
 
   let html = `
   <div class="sb-brand">
-    <div class="sb-icon-sm"><img src="icon-192.png" alt=""></div>
+    <div class="sb-icon-sm"><img src="logo-mark.png" alt=""></div>
     <div class="sb-wordmark">SamDlight <em>OS</em></div>
   </div>
   <div class="sb-user" style="display:flex;align-items:flex-start;gap:10px">
@@ -1891,6 +1891,8 @@ R.growth = ()=>{
   const health    = calcHealth();
   const trial     = trialBannerHtml();
   const unreadNotifs = (DB.notifications||[]).filter(n=>!n.read);
+  const activityRange = activityRangeDates();
+  const activityFeed = DB.activity.filter(a=>(a.time||'').slice(0,10)>=activityRange.from && (a.time||'').slice(0,10)<=activityRange.to);
 
   // Real week-over-week revenue delta — was previously a hardcoded "22%"
   // regardless of actual data.
@@ -2020,16 +2022,20 @@ R.growth = ()=>{
 
       <!-- ACTIVITY -->
       <div class="panel">
-        <div class="panel-head"><h3>📡 Live Activity Feed</h3></div>
+        <div class="panel-head"><h3>📡 Live Activity Feed</h3>
+          <select onchange="setActivityRange(this.value)" style="background:var(--ink3);border:1px solid var(--border);color:var(--white);padding:6px 10px;border-radius:8px;font-size:.75rem">
+            ${[['today','Today'],['yesterday','Yesterday'],['last_week','Last Week'],['this_month','This Month'],['last_month','Last Month'],['custom','Custom'],['all','All Time']].map(([k,l])=>`<option value="${k}" ${ACTIVITY_RANGE.key===k?'selected':''}>${l}</option>`).join('')}
+          </select>
+        </div>
         <div class="panel-body">
-          ${DB.activity.length ? DB.activity.slice(0,10).map(a=>`
+          ${activityFeed.length ? activityFeed.slice(0,25).map(a=>`
           <div class="act-item">
             <div class="act-dot" style="background:#F59E0B"></div>
             <div><div class="act-text">${a.staffName?a.staffName+' — ':''}${a.action}</div><div class="act-time">${relativeTime(a.time)}</div></div>
           </div>`).join('') : `
           <div class="act-item">
             <div class="act-dot" style="background:#F59E0B"></div>
-            <div><div class="act-text">Welcome to SamDlight OS — activity will appear here as your business grows.</div><div class="act-time">Just now</div></div>
+            <div><div class="act-text">No activity ${activityRange.label==='Today'?'today':'in this range'}${DB.activity.length?' — try a wider range above.':' yet. It will appear here as your business grows.'}</div><div class="act-time">${activityRange.from} → ${activityRange.to}</div></div>
           </div>`}
         </div>
       </div>
@@ -3058,6 +3064,52 @@ R.aiadvisor = ()=>{
 /* ── PROFILE ── */
 // Kolomoni-style date range filter — one selector drives both the summary
 // and the table below it, instead of three fixed tiles.
+let ACTIVITY_RANGE = { key:'today', from:null, to:null };
+function activityRangeDates(){
+  const today = todayStr();
+  const d = new Date();
+  switch(ACTIVITY_RANGE.key){
+    case 'today':      return { from: today, to: today, label:'Today' };
+    case 'yesterday':  return { from: daysAgoStr(1), to: daysAgoStr(1), label:'Yesterday' };
+    case 'last_week':  return { from: daysAgoStr(7), to: today, label:'Last 7 Days' };
+    case 'this_month': return { from: today.slice(0,7)+'-01', to: today, label:'This Month' };
+    case 'last_month': {
+      const lm = new Date(d.getFullYear(), d.getMonth()-1, 1);
+      const monthStr = lm.getFullYear()+'-'+String(lm.getMonth()+1).padStart(2,'0');
+      const lastDay = new Date(d.getFullYear(), d.getMonth(), 0).getDate();
+      return { from: monthStr+'-01', to: monthStr+'-'+lastDay, label:'Last Month' };
+    }
+    case 'custom':     return { from: ACTIVITY_RANGE.from||today, to: ACTIVITY_RANGE.to||today, label:'Custom Range' };
+    case 'all':        return { from: '0000-01-01', to: '9999-12-31', label:'All Time' };
+    default:           return { from: today, to: today, label:'Today' };
+  }
+}
+function setActivityRange(key){
+  if(key === 'custom'){
+    openModal(`<h2>📅 Custom Date Range</h2>
+    <div class="form-grid">
+      <div class="field"><label>From</label><input type="date" id="cr-from" value="${ACTIVITY_RANGE.from||todayStr()}" max="${todayStr()}"></div>
+      <div class="field"><label>To</label><input type="date" id="cr-to" value="${ACTIVITY_RANGE.to||todayStr()}" max="${todayStr()}"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal(); R.growth();">Cancel</button>
+      <button class="btn btn-gold" onclick="applyActivityCustomRange()">Apply Range</button>
+    </div>`);
+    return;
+  }
+  ACTIVITY_RANGE.key = key;
+  R.growth();
+}
+function applyActivityCustomRange(){
+  const from = v('cr-from'), to = v('cr-to');
+  if(!from || !to){ toast('Pick both a start and end date','warn'); return; }
+  if(from > to){ toast('The start date must be before the end date','warn'); return; }
+  ACTIVITY_RANGE.key = 'custom';
+  ACTIVITY_RANGE.from = from;
+  ACTIVITY_RANGE.to = to;
+  closeModal();
+  R.growth();
+}
 let PROFILE_RANGE = { key:'this_month', from:null, to:null };
 function profileRangeDates(){
   const today = todayStr();
@@ -3285,6 +3337,17 @@ async function changePW(){
 // Real per-staff performance from actual sales + attendance records.
 // Matches sales.staff (first name, as recorded at sale time) to each team
 // member — same matching the sale form already uses.
+let SD_TEAM_ACTIVITY_DAY = null; // null = default to today; set by the day picker on the Team page
+function teamActivityDayOptions(){
+  const days = new Set(DB.activity.map(a=>(a.time||'').slice(0,10)).filter(Boolean));
+  days.add(todayStr());
+  const sorted = [...days].sort((a,b)=>b.localeCompare(a));
+  const yest = yesterdayStr();
+  return sorted.map(date=>({
+    date,
+    label: date===todayStr() ? 'Today' : date===yest ? 'Yesterday' : new Date(date).toLocaleDateString([], {month:'short', day:'numeric', year:'numeric'})
+  }));
+}
 function staffPerformance(){
   return DB.users.map(u=>{
     const firstName = u.name.split(' ')[0];
@@ -3301,6 +3364,8 @@ function staffPerformance(){
 R.team = ()=>{
   const perms = ROLES[ME.role];
   const seatsUsed = DB.users.length + DB.pending.length;
+  const activityDay = SD_TEAM_ACTIVITY_DAY || todayStr();
+  const activityForDay = DB.activity.filter(a=>(a.time||'').slice(0,10)===activityDay);
   const perf = staffPerformance();
   document.getElementById('body').innerHTML = `
   <div class="g2" style="margin-bottom:18px">
@@ -3329,11 +3394,15 @@ R.team = ()=>{
       </div>
     </div>
     <div class="panel">
-      <div class="panel-head"><h3>📋 Recent Team Activity</h3></div>
+      <div class="panel-head"><h3>📋 Team Activity</h3>
+        <select id="team-activity-day" onchange="SD_TEAM_ACTIVITY_DAY=this.value; R.team();" style="background:var(--ink3);border:1px solid var(--border);color:var(--white);padding:6px 10px;border-radius:8px;font-size:.75rem">
+          ${teamActivityDayOptions().map(d=>`<option value="${d.date}" ${d.date===activityDay?'selected':''}>${d.label}</option>`).join('')}
+        </select>
+      </div>
       <div class="panel-body flush">
-        ${DB.activity.length?`<table class="tbl"><thead><tr><th>Staff</th><th>Action</th><th>When</th></tr></thead>
-        <tbody>${DB.activity.map(a=>`<tr><td style="font-weight:600">${a.staffName}</td><td class="c-muted">${a.action}</td><td class="c-muted">${new Date(a.time).toLocaleString()}</td></tr>`).join('')}</tbody></table>`
-        :'<div class="empty"><div class="empty-icon">📋</div><h3>No activity yet</h3><p>Staff actions will appear here as they use SamDlight OS.</p></div>'}
+        ${activityForDay.length?`<table class="tbl"><thead><tr><th>Staff</th><th>Action</th><th>When</th></tr></thead>
+        <tbody>${activityForDay.map(a=>`<tr><td style="font-weight:600">${a.staffName}</td><td class="c-muted">${a.action}</td><td class="c-muted">${new Date(a.time).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</td></tr>`).join('')}</tbody></table>`
+        :`<div class="empty"><div class="empty-icon">📋</div><h3>No activity ${activityDay===todayStr()?'today':'on this day'}</h3><p>Staff actions will appear here as they use SamDlight OS.</p></div>`}
       </div>
     </div>
   </div>
