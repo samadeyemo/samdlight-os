@@ -16,7 +16,7 @@
 <link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="about.css">
 </head>
 <body>
 
@@ -1038,8 +1038,8 @@ function checkLimit(kind){
 let ME = null;
 
 const ROLES = {
-  owner:         { pages:['growth','sales','customers','inventory','expenses','cashflow','receivables','reports','funding','documents','whatsapp','dashboard','team','attendance','payroll','billing','supportreq','profile','aiadvisor'], label:'Owner',   canDelete:true,  canViewAll:true  },
-  manager:       { pages:['growth','sales','customers','inventory','expenses','cashflow','receivables','reports','funding','documents','whatsapp','dashboard','team','attendance','payroll','profile','aiadvisor'],           label:'Manager', canDelete:true,  canViewAll:true  },
+  owner:         { pages:['growth','sales','customers','inventory','expenses','cashflow','receivables','reports','funding','documents','whatsapp','dashboard','team','attendance','payroll','billing','supportreq','profile','aiadvisor','insights'], label:'Owner',   canDelete:true,  canViewAll:true  },
+  manager:       { pages:['growth','sales','customers','inventory','expenses','cashflow','receivables','reports','funding','documents','whatsapp','dashboard','team','attendance','payroll','profile','aiadvisor','insights'],           label:'Manager', canDelete:true,  canViewAll:true  },
   sales:         { pages:['growth','sales','customers','expenses','attendance','profile','aiadvisor'],                                                                              label:'Sales',   canDelete:false, canViewAll:false },
 };
 
@@ -1327,7 +1327,7 @@ async function finishSetup(){
 async function refreshAllData(){
   const bizId = DB.business.id;
   const thisMonth = todayStr().slice(0,7);
-  const [{data:sales},{data:customers},{data:products},{data:team},{data:pending},{data:activity},{data:attend},{data:salaries},{data:runs},{data:expenses},{data:plans},{data:usage}] = await Promise.all([
+  const [{data:sales},{data:customers},{data:products},{data:team},{data:pending},{data:activity},{data:attend},{data:salaries},{data:runs},{data:expenses},{data:plans},{data:usage},{data:insights},{data:recommendations}] = await Promise.all([
     sb.from('sales').select('*').eq('business_id', bizId).order('date',{ascending:false}),
     sb.from('customers').select('*').eq('business_id', bizId),
     sb.from('products').select('*').eq('business_id', bizId),
@@ -1340,6 +1340,8 @@ async function refreshAllData(){
     sb.from('expenses').select('*').eq('business_id', bizId).order('date',{ascending:false}),
     sb.from('plan_configs').select('*').order('sort_order',{ascending:true}),
     sb.from('usage_counters').select('*').eq('business_id', bizId).eq('month', thisMonth).maybeSingle(),
+    sb.from('insights').select('*').eq('business_id', bizId).order('created_at',{ascending:false}).limit(200),
+    sb.from('recommendations').select('*').eq('business_id', bizId).order('created_at',{ascending:false}).limit(200),
   ]);
   DB.sales     = (sales||[]).map(s=>({ id:s.id, date:s.date, customer:s.customer, product:s.product, productId:s.product_id, unitCost:+(s.unit_cost||0), qty:s.qty, amount:+s.amount, method:s.method, status:s.status, staff:s.staff }));
   DB.customers = (customers||[]).map(c=>({ id:c.id, name:c.name, phone:c.phone, email:c.email, lastBuy:c.last_buy||'—', totalSpent:+c.total_spent, visits:c.visits, segment:c.segment, status:c.status }));
@@ -1347,6 +1349,8 @@ async function refreshAllData(){
   DB.users     = (team||[]).map(u=>({ id:u.id, email:u.email, role:u.role, name:u.name, initials:u.initials, status:u.status||'active' }));
   DB.pending   = (pending||[]).map(p=>({ id:p.id, email:p.email, name:p.name, role:p.role }));
   DB.activity  = (activity||[]).map(a=>({ id:a.id, staffName:a.staff_name, action:a.action, time:a.created_at }));
+  DB.insights  = (insights||[]).map(i=>({ id:i.id, type:i.type, severity:i.severity, title:i.title, observation:i.observation, evidence:i.evidence, reason:i.reason, impact:i.impact, status:i.status, sourceRecords:i.source_records, createdAt:i.created_at, viewedAt:i.viewed_at, resolvedAt:i.resolved_at }));
+  DB.recommendations = (recommendations||[]).map(r=>({ id:r.id, insightId:r.insight_id, recommendation:r.recommendation, evidence:r.evidence, expectedImpact:r.expected_impact, status:r.status, outcome:r.outcome, createdAt:r.created_at }));
   DB.attendance= (attend||[]).map(a=>({ id:a.id, staffId:a.staff_id, staffName:a.staff_name, date:a.work_date, clockIn:a.clock_in, clockOut:a.clock_out }));
   DB.salaries  = (salaries||[]).map(s=>({ id:s.id, staffId:s.staff_id, staffName:s.staff_name, salary:+s.monthly_salary }));
   DB.payrollRuns = (runs||[]).map(r=>({ id:r.id, month:r.month, total:+r.total_amount, items:r.items, runBy:r.run_by_name, time:r.created_at }));
@@ -1577,6 +1581,9 @@ function buildSB(){
     { section:'Overview', items:[
       { page:'growth',    icon:'🚀', label:t('growth') },
     ]},
+    { section:'Intelligence', items:[
+      { page:'insights',  icon:'🧠', label:'Insights', badge: (DB.insights||[]).filter(i=>i.status==='new').length||null },
+    ]},
     { section:'Business', items:[
       { page:'sales',     icon:'💰', label:t('sales'), badge: DB.sales.filter(s=>s.status==='Pending').length||null },
       { page:'expenses',  icon:'🧾', label:t('expenses') },
@@ -1653,6 +1660,7 @@ const PAGES = {
   receivables: { h:'Receivables',   sub:'Who owes you money, and for how long' },
   dashboard: { h:'Dashboard',       sub:'Business metrics and performance overview' },
   aiadvisor: { h:'AI Business Advisor', sub:'Ask SamDlight about your business — answers come from your real data' },
+  insights:  { h:'Insights', sub:'What SamDlight has noticed about your business, and why' },
   team:      { h:'Team',            sub:'Manage staff access and see what your team is doing' },
   attendance:{ h:'Attendance',      sub:'Clock in and out, and track staff attendance' },
   payroll:   { h:'Payroll',         sub:'Staff salaries and monthly payroll runs' },
@@ -1841,6 +1849,38 @@ function buildRecos(){
   return recos;
 }
 
+// Persists what buildRecos()/calcHealth() already compute into the
+// insights table (Phase 2 foundation) instead of throwing it away on
+// every render. Best-effort and silent — a failed save here should
+// never break the dashboard someone's actually looking at.
+const RECO_TAG_TO_TYPE = { 'Retention':'customer', 'Inventory':'inventory', 'Cash Flow':'sales', 'Upsell':'customer', 'Revenue':'sales', 'Revenue Drop':'profit' };
+const RECO_PRIORITY_TO_SEVERITY = { 'p-critical':'critical', 'p-high':'watch', 'p-medium':'watch' };
+async function persistDashboardInsights(recos, health){
+  try{
+    for(const r of recos){
+      await sb.rpc('upsert_insight', {
+        p_type: RECO_TAG_TO_TYPE[r.tag] || 'general',
+        p_severity: RECO_PRIORITY_TO_SEVERITY[r.priority] || 'watch',
+        p_title: r.text,
+        p_observation: r.text,
+        p_evidence: r.reason || null,
+        p_source_records: JSON.stringify({ nav_page: r.page || null, tag: r.tag })
+      });
+    }
+    if(health.score < 70){
+      const reasonText = health.reasons.map(x=>x.c+' '+x.t).join(' ');
+      await sb.rpc('upsert_insight', {
+        p_type: 'health',
+        p_severity: health.score < 45 ? 'critical' : 'watch',
+        p_title: `Business Health Score: ${health.score}/100`,
+        p_observation: `Your business health score is ${health.score}/100.`,
+        p_evidence: reasonText,
+        p_source_records: JSON.stringify({ score: health.score })
+      });
+    }
+  }catch(e){ /* best-effort — intentionally silent */ }
+}
+
 // ══════════════════════════════════════════
 //  RENDERS
 // ══════════════════════════════════════════
@@ -1889,6 +1929,7 @@ R.growth = ()=>{
   const returning = DB.customers.filter(c=>c.visits>1).length;
   const recos     = buildRecos();
   const health    = calcHealth();
+  persistDashboardInsights(recos, health);
   const trial     = trialBannerHtml();
   const unreadNotifs = (DB.notifications||[]).filter(n=>!n.read);
   const activityRange = activityRangeDates();
@@ -2282,6 +2323,7 @@ R.customers = ()=>{
   const atRisk  = DB.customers.filter(c=>c.status==='At Risk'||c.status==='Dormant').length;
   const revenue = DB.customers.reduce((a,c)=>a+c.totalSpent,0);
   const insights = customerInsights();
+  persistCustomerInsights(insights);
 
   document.getElementById('body').innerHTML = `
   <div class="kpi-row">
@@ -2328,6 +2370,19 @@ R.customers = ()=>{
 
 // Generates plain-language, actionable insights from real customer + sales data —
 // no fixed thresholds, everything computed from what's actually there.
+async function persistCustomerInsights(insights){
+  try{
+    for(const i of insights){
+      const severity = /at risk|dormant|30\+ days/i.test(i.text) ? 'watch' : 'good';
+      await sb.rpc('upsert_insight', {
+        p_type:'customer', p_severity:severity,
+        p_title: i.text.replace(/<\/?b>/g,''),
+        p_observation: i.text.replace(/<\/?b>/g,''),
+        p_source_records: JSON.stringify({ nav_page:'customers' })
+      });
+    }
+  }catch(e){ /* best-effort — intentionally silent */ }
+}
 function customerInsights(){
   const insights = [];
   const inactive30 = DB.customers.filter(c=>{
@@ -2453,6 +2508,30 @@ function inventoryIntelligence(){
     return { ...p, unitsSold30d, avgDaily: Math.round(avgDaily*10)/10, daysRemaining };
   });
 }
+async function persistInventoryInsights(approachingStockOut, deadStock){
+  try{
+    if(approachingStockOut.length){
+      const top = approachingStockOut[0];
+      const names = approachingStockOut.slice(0,3).map(p=>p.name).join(', ');
+      await sb.rpc('upsert_insight', {
+        p_type:'inventory', p_severity: top.daysRemaining<=3?'critical':'watch',
+        p_title: `${top.name} may run out in ~${top.daysRemaining} day${top.daysRemaining===1?'':'s'}`,
+        p_observation: `${approachingStockOut.length} product${approachingStockOut.length===1?' is':'s are'} approaching stock-out: ${names}.`,
+        p_evidence: `${top.name}: ${top.stock} units left, selling ~${top.avgDaily}/day.`,
+        p_source_records: JSON.stringify({ nav_page:'inventory' })
+      });
+    }
+    if(deadStock.length){
+      const names = deadStock.slice(0,3).map(p=>p.name).join(', ');
+      await sb.rpc('upsert_insight', {
+        p_type:'inventory', p_severity:'watch',
+        p_title: `${deadStock.length} product${deadStock.length===1?' has':'s have'} had zero sales in 30 days`,
+        p_observation: `Dead stock: ${names}${deadStock.length>3?', and more':''}.`,
+        p_source_records: JSON.stringify({ nav_page:'inventory' })
+      });
+    }
+  }catch(e){ /* best-effort — intentionally silent */ }
+}
 R.inventory = ()=>{
   const lowStock = DB.products.filter(p=>p.stock<p.reorder&&p.stock<999);
   const totalVal = DB.products.filter(p=>p.stock<999).reduce((a,p)=>a+p.stock*p.cost,0);
@@ -2461,6 +2540,7 @@ R.inventory = ()=>{
   const fastMovers = [...intel].filter(p=>p.unitsSold30d>0).sort((a,b)=>b.unitsSold30d-a.unitsSold30d).slice(0,3);
   const deadStock = intel.filter(p=>p.unitsSold30d===0 && p.stock>0 && p.stock<999);
   const approachingStockOut = intel.filter(p=>p.daysRemaining!==null && p.daysRemaining<=7).sort((a,b)=>a.daysRemaining-b.daysRemaining);
+  persistInventoryInsights(approachingStockOut, deadStock);
 
   document.getElementById('body').innerHTML = `
   <div class="kpi-row">
@@ -2628,7 +2708,65 @@ async function deleteProduct(id){
 //  EXPENSES
 // ══════════════════════════════════════════
 const EXPENSE_CATEGORIES = ['Rent','Electricity','Internet','Transportation','Fuel','Salaries','Marketing','Packaging','Bank Charges','Taxes','Supplier Payments','Miscellaneous'];
+function expenseIntelligence(){
+  const insights = [];
+  const now = new Date();
+  const thisMonthStr = todayStr().slice(0,7);
+  const lastMonthDate = new Date(now.getFullYear(), now.getMonth()-1, 1);
+  const lastMonthStr = lastMonthDate.getFullYear()+'-'+String(lastMonthDate.getMonth()+1).padStart(2,'0');
+
+  const thisMonth = DB.expenses.filter(e=>e.date.slice(0,7)===thisMonthStr);
+  const lastMonth = DB.expenses.filter(e=>e.date.slice(0,7)===lastMonthStr);
+
+  const byCatThis = {}, byCatLast = {};
+  thisMonth.forEach(e=>byCatThis[e.category]=(byCatThis[e.category]||0)+e.amount);
+  lastMonth.forEach(e=>byCatLast[e.category]=(byCatLast[e.category]||0)+e.amount);
+
+  // Largest category-level changes — only categories with a real prior-month
+  // baseline, so a % change is meaningful and not just "new category = infinity%".
+  const changes = Object.keys(byCatLast).map(cat=>{
+    const before = byCatLast[cat], after = byCatThis[cat]||0;
+    return { cat, before, after, pct: before>0 ? Math.round(((after-before)/before)*100) : null };
+  }).filter(c=>c.pct!==null && c.pct>=15).sort((a,b)=>b.pct-a.pct);
+
+  if(changes.length){
+    const top = changes[0];
+    const list = changes.slice(0,3).map(c=>`${c.cat} +${c.pct}%`).join(', ');
+    insights.push({ icon:'📈', severity: top.pct>=40?'critical':'watch',
+      title:`${top.cat} spending is up ${top.pct}% this month`,
+      text:`Largest changes: ${list}.`,
+      evidence:`${top.cat}: ${curSym()}${top.before.toLocaleString()} last month → ${curSym()}${top.after.toLocaleString()} this month.`,
+      action:'Review Expenses', page:'expenses' });
+  }
+
+  const totalThis = thisMonth.reduce((a,e)=>a+e.amount,0);
+  const totalLast = lastMonth.reduce((a,e)=>a+e.amount,0);
+  if(totalLast>0){
+    const pct = Math.round(((totalThis-totalLast)/totalLast)*100);
+    if(pct>=20)
+      insights.push({ icon:'⚠️', severity: pct>=40?'critical':'watch',
+        title:`Total expenses are up ${pct}% vs last month`,
+        text:`${curSym()}${totalThis.toLocaleString()} this month vs ${curSym()}${totalLast.toLocaleString()} last month.`,
+        evidence:`Spending increased ${curSym()}${(totalThis-totalLast).toLocaleString()} month-over-month.`,
+        action:'Review Expenses', page:'expenses' });
+  }
+
+  return insights;
+}
+async function persistExpenseInsights(insights){
+  try{
+    for(const i of insights){
+      await sb.rpc('upsert_insight', {
+        p_type:'expense', p_severity:i.severity, p_title:i.title,
+        p_observation:i.title, p_evidence:i.text+' '+i.evidence,
+        p_source_records: JSON.stringify({ nav_page:i.page })
+      });
+    }
+  }catch(e){ /* best-effort — intentionally silent */ }
+}
 R.expenses = ()=>{
+  const expenseInsights = expenseIntelligence();
+  persistExpenseInsights(expenseInsights);
   const thisMonth = DB.expenses.filter(e=>e.date>=todayStr().slice(0,7)+'-01');
   const totalThisMonth = thisMonth.reduce((a,e)=>a+e.amount,0);
   const byCategory = {};
@@ -2641,6 +2779,20 @@ R.expenses = ()=>{
     <div class="kpi"><div class="kpi-val">${thisMonth.length}</div><div class="kpi-label">Transactions This Month</div></div>
     <div class="kpi"><div class="kpi-val">${topCategories[0]?topCategories[0][0]:'—'}</div><div class="kpi-label">Top Category</div></div>
   </div>
+  ${expenseInsights.length?`<div class="panel" style="margin-bottom:18px">
+    <div class="panel-head"><h3>🧠 Expense Intelligence</h3></div>
+    <div class="panel-body">
+      ${expenseInsights.map(i=>`<div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+        <span style="font-size:1.1rem">${i.icon}</span>
+        <div style="flex:1">
+          <div style="font-size:.84rem"><b>${i.title}</b></div>
+          <div style="font-size:.8rem;color:var(--muted2);margin-top:2px">${i.text}</div>
+          <div style="font-size:.74rem;color:var(--muted2);margin-top:2px">${i.evidence}</div>
+        </div>
+      </div>`).join('')}
+    </div>
+  </div>`:''}
+
   <div class="panel" style="margin-bottom:18px">
     <div class="panel-head"><h3>🧾 All Expenses</h3><button class="btn btn-gold btn-sm" onclick="openAddExpense()">+ Add Expense</button></div>
     <div class="panel-body flush">
@@ -3043,6 +3195,73 @@ async function aiSend(){
     if(sendBtn) sendBtn.disabled = false;
     aiRenderLog();
   }
+}
+
+const INSIGHT_TYPE_ICON = { daily_briefing:'☀️', profit:'📉', inventory:'📦', customer:'👥', expense:'🧾', health:'❤️', sales:'💰', general:'🧠' };
+const INSIGHT_SEVERITY_COLOR = { critical:'var(--red)', watch:'var(--amber)', good:'var(--green)' };
+const INSIGHT_SEVERITY_PRIORITY = { critical:'p-critical', watch:'p-high', good:'p-medium' };
+R.insights = ()=>{
+  const all = DB.insights||[];
+  const open = all.filter(i=>i.status==='new'||i.status==='viewed').sort((a,b)=>{
+    const order = { critical:0, watch:1, good:2 };
+    return (order[a.severity]??3) - (order[b.severity]??3) || new Date(b.createdAt)-new Date(a.createdAt);
+  });
+  const history = all.filter(i=>i.status==='dismissed'||i.status==='resolved').slice(0,30);
+
+  document.getElementById('body').innerHTML = `
+  <div class="reco-section" style="margin-bottom:16px">
+    <div class="reco-header">
+      <h3>🧠 What SamDlight Has Noticed</h3>
+      <span class="reco-count">${open.length} open</span>
+    </div>
+    <div class="reco-list">
+      ${open.length ? open.map(i=>{
+        const src = (()=>{ try{ return typeof i.sourceRecords==='string'?JSON.parse(i.sourceRecords):(i.sourceRecords||{}); }catch(e){ return {}; } })();
+        return `
+      <div class="reco-item ${INSIGHT_SEVERITY_PRIORITY[i.severity]||'p-medium'}">
+        <div class="priority-bar"></div>
+        <div class="reco-icon">${INSIGHT_TYPE_ICON[i.type]||'🧠'}</div>
+        <div class="reco-body">
+          <div class="reco-text">${i.title}${i.status==='new'?' <span class="bdg bdg-amber" style="margin-left:6px;font-size:.62rem">NEW</span>':''}</div>
+          <div class="reco-reason">${i.evidence||i.observation||''}</div>
+          <div class="reco-tag" style="margin-top:5px;color:${INSIGHT_SEVERITY_COLOR[i.severity]||'var(--muted2)'}">● ${i.type.replace('_',' ')}</div>
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+            ${src.nav_page?`<button class="btn btn-gold btn-sm" onclick="event.stopPropagation();openInsight('${i.id}','${src.nav_page}')">View →</button>`:''}
+            <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();setInsightStatus('${i.id}','resolved')">Mark Resolved</button>
+            <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();setInsightStatus('${i.id}','dismissed')">Dismiss</button>
+          </div>
+        </div>
+      </div>`;}).join('')
+      : `<div class="empty"><div class="empty-icon">🧠</div><h3>Nothing needs your attention right now</h3><p>Insights will appear here as SamDlight notices things worth knowing about your business.</p></div>`}
+    </div>
+  </div>
+  ${history.length?`
+  <div class="panel">
+    <div class="panel-head"><h3>📜 History</h3></div>
+    <div class="panel-body flush">
+      <table class="tbl"><thead><tr><th>Title</th><th>Type</th><th>Status</th><th>When</th></tr></thead>
+      <tbody>${history.map(i=>`<tr>
+        <td style="font-weight:600">${i.title}</td>
+        <td class="c-muted">${i.type.replace('_',' ')}</td>
+        <td>${i.status==='resolved'?'<span class="bdg bdg-green">Resolved</span>':'<span class="bdg bdg-amber">Dismissed</span>'}</td>
+        <td class="c-muted" style="font-size:.72rem">${new Date(i.createdAt).toLocaleDateString()}</td>
+      </tr>`).join('')}</tbody></table>
+    </div>
+  </div>`:''}`;
+
+  // Anything still "new" is now visibly on screen — quietly mark it viewed.
+  open.filter(i=>i.status==='new').forEach(i=>setInsightStatus(i.id,'viewed',true));
+};
+async function setInsightStatus(id, status, silent){
+  const { error } = await sb.rpc('update_insight_status', { p_insight_id:id, p_status:status });
+  if(error){ if(!silent) toast(error.message,'warn'); return; }
+  await refreshAllData();
+  if(!silent){ R.insights(); toast(status==='resolved'?'Marked resolved':'Dismissed'); }
+  else { const i=(DB.insights||[]).find(x=>x.id===id); if(i) i.status='viewed'; buildSB(); }
+}
+function openInsight(id, page){
+  setInsightStatus(id,'viewed',true);
+  go(page,null);
 }
 
 R.aiadvisor = ()=>{
